@@ -7,11 +7,14 @@
   "scripts": {
     "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
     "start": "npm --prefix backend start",
-    "build": "npm --prefix frontend build",
+    "build": "npm --prefix frontend run build",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
+    "deploy:build": "npm run install:all && npm run build",
+    "test": "npm --prefix backend test",
     "backend:dev": "npm --prefix backend run dev",
     "backend:start": "npm --prefix backend start",
     "frontend:dev": "npm --prefix frontend run dev",
-    "frontend:build": "npm --prefix frontend build",
+    "frontend:build": "npm --prefix frontend run build",
     "frontend:preview": "npm --prefix frontend run preview"
   },
   "devDependencies": {

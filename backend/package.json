@@ -18,7 +18,7 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^9.0.5",
     "pdfkit": "^0.14.0",
-    "sqlite3": "^5.1.6",
+    "sqlite3": "^6.0.1",
     "uuid": "^14.0.1"
   },
   "devDependencies": {

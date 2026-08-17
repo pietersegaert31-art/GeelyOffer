@@ -1,9 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import geelyLogo from '../assets/geely-logo.png'
 import { useAuth } from '../context/AuthContext'
+import ChangePasswordModal from './ChangePasswordModal'
 
 function Header({ currentPage, onPageChange }) {
   const { user, logout } = useAuth()
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
 
   return (
     <header className="page-header">
@@ -37,13 +39,17 @@ function Header({ currentPage, onPageChange }) {
           )}
 
           <span className="user-menu">
-            <span className="user-name">{user?.name}</span>
+            <button className="user-name user-name-btn" onClick={() => setShowPasswordModal(true)} title="Wachtwoord wijzigen">
+              {user?.name}
+            </button>
             <button className="btn btn-outline user-logout" onClick={logout}>
               Uitloggen
             </button>
           </span>
         </nav>
       </div>
+
+      {showPasswordModal && <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />}
     </header>
   )
 }

@@ -149,6 +149,16 @@ img {
   white-space: nowrap;
 }
 
+.user-name-btn {
+  background: transparent;
+  border-bottom: 1px dashed var(--border-strong);
+  cursor: pointer;
+}
+
+.user-name-btn:hover {
+  color: var(--accent);
+}
+
 .user-logout {
   padding: 7px 12px;
   font-size: 0.78rem;
