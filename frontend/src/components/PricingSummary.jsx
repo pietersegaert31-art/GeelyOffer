@@ -1,0 +1,43 @@
+import React from 'react'
+import { formatPrice } from '../utils/api'
+
+function PricingSummary({ pricing }) {
+  return (
+    <div className="pricing-summary">
+      <div className="price-row">
+        <span className="price-label">Basisprijs</span>
+        <span className="price-value">{formatPrice(pricing.basePrice)}</span>
+      </div>
+      {pricing.accessoriesPrice > 0 && (
+        <div className="price-row">
+          <span className="price-label">Opties</span>
+          <span className="price-value">{formatPrice(pricing.accessoriesPrice)}</span>
+        </div>
+      )}
+      {pricing.discountPercentage > 0 && (
+        <div className="price-row">
+          <span className="price-label">Korting ({pricing.discountPercentage}%)</span>
+          <span className="price-value price-value--discount">-{formatPrice(pricing.discountAmount)}</span>
+        </div>
+      )}
+
+      <div className="price-divider" />
+
+      <div className="price-row">
+        <span className="price-label">Totaalprijs excl. BTW</span>
+        <span className="price-value">{formatPrice(pricing.subtotal)}</span>
+      </div>
+      <div className="price-row">
+        <span className="price-label">BTW (21%)</span>
+        <span className="price-value">{formatPrice(pricing.vat)}</span>
+      </div>
+      <div className="price-row total">
+        <span>Totaalprijs incl. BTW</span>
+        <span>{formatPrice(pricing.total)}</span>
+      </div>
+      <div className="vat-note">Basisprijs en opties zijn Geely-adviesprijzen, inclusief 21% Belgische BTW.</div>
+    </div>
+  )
+}
+
+export default PricingSummary

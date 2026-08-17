@@ -1,0 +1,20 @@
+{
+  "name": "geely-quotation-system",
+  "version": "1.0.0",
+  "description": "Professional Geely vehicle quotation system with PDF generation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix backend run dev\" \"npm --prefix frontend run dev\"",
+    "start": "npm --prefix backend start",
+    "build": "npm --prefix frontend build",
+    "backend:dev": "npm --prefix backend run dev",
+    "backend:start": "npm --prefix backend start",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend build",
+    "frontend:preview": "npm --prefix frontend run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

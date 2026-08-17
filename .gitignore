@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database (real customer data must never be committed)
+backend/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Build outputs
+frontend/dist/
+build/
+*.tgz
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Misc
+.cache/
+.temp/

@@ -1,0 +1,23 @@
+.app {
+  min-height: 100vh;
+}
+
+main.container {
+  padding-top: 28px;
+  padding-bottom: 48px;
+}
+
+.page-shell {
+  animation: fadeIn 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
