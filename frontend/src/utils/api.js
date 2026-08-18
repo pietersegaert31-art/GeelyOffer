@@ -217,6 +217,15 @@ export function formatPrice(price) {
   }).format(price)
 }
 
+// Geely's published prices are already VAT-inclusive (see backend calculatePricing) — the
+// excl.-BTW amount is derived by dividing back out the 21% rate, never added on top. Kept
+// here as the single source of truth so every place that shows an excl.-BTW price (variant
+// cards, comparison card, pricing summary) computes it identically.
+const VAT_RATE = 0.21
+export function exclVat(inclVatPrice) {
+  return inclVatPrice / (1 + VAT_RATE)
+}
+
 export function formatDate(dateString) {
   return new Intl.DateTimeFormat('nl-BE', {
     year: 'numeric',

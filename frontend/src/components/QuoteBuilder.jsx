@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { api, formatPrice } from '../utils/api'
+import { api, formatPrice, exclVat } from '../utils/api'
 import {
   DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
@@ -38,12 +38,13 @@ function parseSpecs(vehicle) {
   }
 }
 
-// Builds the row list for the variant-comparison table — cheapest to priciest. Only
-// rows that actually differ between variants are kept (except Basisprijs, always
-// shown) — trims of the same model often share power/torque/charging, and listing
-// those as if they were differences would defeat the point of a "what's different" view.
+// Builds the row list for the variant-comparison card — cheapest to priciest. Only rows
+// that actually differ between variants are kept — trims of the same model often share
+// power/torque/charging, and listing those as if they were differences would defeat the
+// point of a "what's different" view. Price is handled separately (always shown, never
+// filtered), since it must never be mistaken for an optional/omittable spec row.
 function buildComparisonRows(variants) {
-  const candidateRows = [{ label: 'Basisprijs', values: variants.map((v) => formatPrice(v.basePrice)), always: true }]
+  const candidateRows = []
 
   if (variants.some((v) => v.power)) {
     candidateRows.push({ label: 'Vermogen', values: variants.map((v) => (v.power ? `${v.power} pk` : '—')) })
@@ -63,7 +64,7 @@ function buildComparisonRows(variants) {
     candidateRows.push({ label: SPEC_LABELS[key], values: specs.map((s) => s[key] || '—') })
   })
 
-  return candidateRows.filter((row) => row.always || new Set(row.values).size > 1)
+  return candidateRows.filter((row) => new Set(row.values).size > 1)
 }
 
 function QuoteBuilder({ onQuoteCreated }) {
@@ -470,29 +471,30 @@ function QuoteBuilder({ onQuoteCreated }) {
                 <div className="card">
                   <div className="section-kicker">Vergelijken</div>
                   <h3 className="section-title" style={{ fontSize: '1.05rem', marginBottom: '12px' }}>Verschil per uitvoering</h3>
-                  <div className="table-shell">
-                    <table className="compare-table">
-                      <thead>
-                        <tr>
-                          <th></th>
-                          {variants.map((v) => (
-                            <th key={v.id} className={selectedVariant?.id === v.id ? 'compare-col-active' : ''}>{v.model}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((row) => (
-                          <tr key={row.label}>
-                            <td className="compare-row-label">{row.label}</td>
-                            {row.values.map((value, i) => (
-                              <td key={variants[i].id} className={selectedVariant?.id === variants[i].id ? 'compare-col-active' : ''}>
-                                {value}
-                              </td>
+                  <div className="compare-stack">
+                    {variants.map((v, i) => (
+                      <div key={v.id} className={`compare-variant ${selectedVariant?.id === v.id ? 'compare-variant-active' : ''}`}>
+                        <div className="compare-variant-name">{v.model}</div>
+                        <div className="compare-variant-price">
+                          <span className="compare-price-label">Basisprijs incl. BTW</span>
+                          <strong className="compare-price-value">{formatPrice(v.basePrice)}</strong>
+                        </div>
+                        <div className="compare-variant-price compare-variant-price-excl">
+                          <span className="compare-price-label">Basisprijs excl. BTW</span>
+                          <strong className="compare-price-value">{formatPrice(exclVat(v.basePrice))}</strong>
+                        </div>
+                        {rows.length > 0 && (
+                          <ul className="compare-variant-specs">
+                            {rows.map((row) => (
+                              <li key={row.label}>
+                                <span>{row.label}</span>
+                                <strong>{row.values[i]}</strong>
+                              </li>
                             ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                          </ul>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )

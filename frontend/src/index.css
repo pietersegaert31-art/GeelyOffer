@@ -466,6 +466,13 @@ textarea {
   color: var(--text);
 }
 
+.vehicle-price-excl {
+  margin-top: 2px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .builder-shell {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(300px, 0.9fr);
@@ -752,44 +759,87 @@ textarea {
   background: #fff;
 }
 
-.compare-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.76rem;
+/* Variant comparison card: a vertical stack of per-variant blocks rather than a wide
+   table, so it never needs a horizontal scrollbar in the narrow builder sidebar — it
+   just grows downward instead, which reads cleanly at any sidebar width. */
+.compare-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.compare-table th,
-.compare-table td {
-  padding: 7px 8px;
-  text-align: center;
-  border-bottom: 1px solid var(--border);
+.compare-variant {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.compare-variant-active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.compare-variant-name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.compare-variant-price {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.compare-variant-price-excl {
+  margin-bottom: 8px;
+}
+
+.compare-price-label {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.compare-price-value {
+  font-size: 0.9rem;
+  color: var(--text);
   white-space: nowrap;
 }
 
-.compare-table thead th {
-  font-weight: 700;
-  color: var(--text);
-  font-size: 0.75rem;
-  border-bottom: 1px solid var(--border-strong);
-}
-
-.compare-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.compare-row-label {
-  text-align: left !important;
-  color: var(--muted);
+.compare-variant-price-excl .compare-price-value {
+  font-size: 0.8rem;
   font-weight: 600;
+  color: var(--muted);
 }
 
-.compare-col-active {
-  background: var(--primary-soft);
+.compare-variant-specs {
+  list-style: none;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.compare-variant-specs li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.76rem;
+}
+
+.compare-variant-specs li span {
+  color: var(--muted);
+}
+
+.compare-variant-specs li strong {
+  text-align: right;
   color: var(--text);
-}
-
-.compare-table thead th.compare-col-active {
-  font-weight: 700;
 }
 
 .data-table {
