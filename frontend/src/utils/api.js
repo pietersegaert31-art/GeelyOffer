@@ -145,12 +145,24 @@ export const api = {
   },
 
   // Reports
-  async getReportsSummary({ from = '', to = '' } = {}) {
+  async getReportsSummary({ from = '', to = '', branchId = '' } = {}) {
     const params = new URLSearchParams()
     if (from) params.set('from', from)
     if (to) params.set('to', to)
+    if (branchId) params.set('branchId', branchId)
     const qs = params.toString()
     return request(`/reports/summary${qs ? `?${qs}` : ''}`)
+  },
+
+  // Branches
+  async getBranches(includeInactive = false) {
+    return request(`/branches${includeInactive ? '?all=true' : ''}`)
+  },
+  async createBranch(branchData) {
+    return request('/branches', { method: 'POST', body: JSON.stringify(branchData) })
+  },
+  async updateBranch(id, branchData) {
+    return request(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(branchData) })
   },
 
   // Audit log
@@ -159,6 +171,42 @@ export const api = {
     if (entityType) params.set('entityType', entityType)
     if (entityId) params.set('entityId', entityId)
     return request(`/audit-log?${params.toString()}`)
+  },
+
+  // Imports (price lists / documents)
+  async uploadImport(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    // No Content-Type header here on purpose — the browser sets the multipart
+    // boundary itself, which request()'s default JSON header would break.
+    const response = await fetch(`${API_BASE_URL}/imports`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+    if (!response.ok) {
+      let message = `Request failed (${response.status})`
+      try {
+        const data = await response.json()
+        if (data?.error) message = data.error
+      } catch {
+        // no JSON body — keep the generic message
+      }
+      throw new Error(message)
+    }
+    return response.json()
+  },
+  async getImports({ page = 1, limit = 20 } = {}) {
+    return request(`/imports?page=${page}&limit=${limit}`)
+  },
+  async applyImport(id, selectedIndexes) {
+    return request(`/imports/${id}/apply`, { method: 'POST', body: JSON.stringify({ selectedIndexes }) })
+  },
+  async deleteImport(id) {
+    return request(`/imports/${id}`, { method: 'DELETE' })
+  },
+  importDownloadUrl(id) {
+    return `${API_BASE_URL}/imports/${id}/download`
   },
 }
 

@@ -8,6 +8,7 @@ export function toPublicUser(user) {
     role: user.role,
     active: !!user.active,
     mustChangePassword: !!user.mustChangePassword,
+    branchId: user.branchId || null,
     createdAt: user.createdAt,
   };
 }

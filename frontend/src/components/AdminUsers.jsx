@@ -3,8 +3,8 @@ import { api } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { ROLES, ROLE_LABELS } from '../utils/constants'
 
-function UserFormModal({ onClose, onSaved }) {
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'sales' })
+function UserFormModal({ branches, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'sales', branchId: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -15,7 +15,7 @@ function UserFormModal({ onClose, onSaved }) {
     setError('')
     setSaving(true)
     try {
-      await api.createUser(form)
+      await api.createUser({ ...form, branchId: form.branchId || null })
       onSaved()
     } catch (err) {
       setError(err.message)
@@ -53,6 +53,15 @@ function UserFormModal({ onClose, onSaved }) {
               ))}
             </select>
           </div>
+          <div className="form-group">
+            <label>Vestiging</label>
+            <select value={form.branchId} onChange={(e) => set('branchId', e.target.value)}>
+              <option value="">Geen vestiging</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="btn-group">
             <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Aanmaken...' : 'Account aanmaken'}</button>
             <button className="btn btn-outline" type="button" onClick={onClose} disabled={saving}>Annuleren</button>
@@ -66,6 +75,7 @@ function UserFormModal({ onClose, onSaved }) {
 function AdminUsers() {
   const { user: currentUser } = useAuth()
   const [users, setUsers] = useState([])
+  const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -74,7 +84,9 @@ function AdminUsers() {
     try {
       setLoading(true)
       setError('')
-      setUsers(await api.getUsers())
+      const [usersData, branchesData] = await Promise.all([api.getUsers(), api.getBranches(true)])
+      setUsers(usersData)
+      setBranches(branchesData)
     } catch (err) {
       setError('Kon gebruikers niet laden: ' + err.message)
     } finally {
@@ -97,6 +109,16 @@ function AdminUsers() {
     if (role === u.role) return
     try {
       await api.updateUser(u.id, { role })
+      load()
+    } catch (err) {
+      alert(err.message)
+    }
+  }
+
+  const handleBranchChange = async (u, branchId) => {
+    if (branchId === (u.branchId || '')) return
+    try {
+      await api.updateUser(u.id, { branchId: branchId || null })
       load()
     } catch (err) {
       alert(err.message)
@@ -132,6 +154,7 @@ function AdminUsers() {
                 <th>Naam</th>
                 <th>E-mail</th>
                 <th>Rol</th>
+                <th>Vestiging</th>
                 <th>Status</th>
                 <th>Acties</th>
               </tr>
@@ -149,6 +172,18 @@ function AdminUsers() {
                     >
                       {ROLES.map((r) => (
                         <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      value={u.branchId || ''}
+                      onChange={(e) => handleBranchChange(u, e.target.value)}
+                      style={{ padding: '5px 8px', fontSize: '0.76rem' }}
+                    >
+                      <option value="">Geen vestiging</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
                     </select>
                   </td>
@@ -184,7 +219,7 @@ function AdminUsers() {
       )}
 
       {showForm && (
-        <UserFormModal onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load() }} />
+        <UserFormModal branches={branches} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); load() }} />
       )}
     </div>
   )

@@ -22,11 +22,17 @@ function monthRangeBounds() {
   };
 }
 
-async function getMonthlyTrend() {
+async function getMonthlyTrend(branchId) {
   const { previousStart, currentStart, nextStart } = monthRangeBounds();
+  const conditions = ['createdAt >= ?', 'createdAt < ?'];
+  const params = [previousStart, nextStart];
+  if (branchId) {
+    conditions.push('branchId = ?');
+    params.push(branchId);
+  }
   const rows = await allAsync(
-    'SELECT status, totalPrice, createdAt FROM quotes WHERE createdAt >= ? AND createdAt < ?',
-    [previousStart, nextStart]
+    `SELECT status, totalPrice, createdAt FROM quotes WHERE ${conditions.join(' AND ')}`,
+    params
   );
 
   const bucket = () => ({ total: 0, accepted: 0, declined: 0, acceptedValue: 0 });
@@ -54,7 +60,7 @@ async function getMonthlyTrend() {
 // needs without digging through the raw quote list.
 router.get('/summary', async (req, res) => {
   try {
-    const { from, to } = req.query;
+    const { from, to, branchId } = req.query;
     const conditions = [];
     const params = [];
     if (from) {
@@ -65,10 +71,14 @@ router.get('/summary', async (req, res) => {
       conditions.push('createdAt <= ?');
       params.push(`${to} 23:59:59`);
     }
+    if (branchId) {
+      conditions.push('branchId = ?');
+      params.push(branchId);
+    }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const quotes = await allAsync(
-      `SELECT status, configuration, totalPrice, createdBy, createdByName FROM quotes ${whereClause}`,
+      `SELECT status, configuration, totalPrice, createdBy, createdByName, branchId, branchName FROM quotes ${whereClause}`,
       params
     );
 
@@ -76,6 +86,7 @@ router.get('/summary', async (req, res) => {
     let acceptedValue = 0;
     const modelCounts = new Map();
     const salespersonCounts = new Map();
+    const branchCounts = new Map();
 
     for (const q of quotes) {
       if (totals[q.status] !== undefined) totals[q.status] += 1;
@@ -105,9 +116,26 @@ router.get('/summary', async (req, res) => {
       if (q.status === 'accepted') salespersonEntry.accepted += 1;
       if (q.status === 'declined') salespersonEntry.declined += 1;
       salespersonCounts.set(salespersonKey, salespersonEntry);
+
+      const branchKey = q.branchId || 'onbekend';
+      const branchEntry = branchCounts.get(branchKey) || {
+        id: q.branchId || null,
+        name: q.branchName || 'Onbekend',
+        total: 0,
+        accepted: 0,
+        declined: 0,
+      };
+      branchEntry.total += 1;
+      if (q.status === 'accepted') branchEntry.accepted += 1;
+      if (q.status === 'declined') branchEntry.declined += 1;
+      branchCounts.set(branchKey, branchEntry);
     }
 
     const bySalesperson = [...salespersonCounts.values()]
+      .map((entry) => ({ ...entry, closeRate: closeRate(entry.accepted, entry.declined) }))
+      .sort((a, b) => b.total - a.total);
+
+    const byBranch = [...branchCounts.values()]
       .map((entry) => ({ ...entry, closeRate: closeRate(entry.accepted, entry.declined) }))
       .sort((a, b) => b.total - a.total);
 
@@ -118,7 +146,8 @@ router.get('/summary', async (req, res) => {
       closeRate: closeRate(totals.accepted, totals.declined),
       topModels: [...modelCounts.values()].sort((a, b) => b.count - a.count).slice(0, 10),
       bySalesperson,
-      monthlyTrend: await getMonthlyTrend(),
+      byBranch,
+      monthlyTrend: await getMonthlyTrend(branchId),
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

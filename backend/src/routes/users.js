@@ -8,6 +8,14 @@ import { toPublicUser } from '../utils/publicUser.js';
 const router = express.Router();
 router.use(requireAuth, blockPendingPasswordChange, requireAdmin);
 
+// Returns an error message if branchId is set but doesn't match a real branch, or null
+// if it's valid (including the "no branch" case — not every account needs one, e.g. HQ admins).
+async function validateBranchId(branchId) {
+  if (!branchId) return null;
+  const branch = await getAsync('SELECT id FROM branches WHERE id = ?', [branchId]);
+  return branch ? null : 'Onbekende vestiging';
+}
+
 // List colleagues
 router.get('/', async (req, res) => {
   try {
@@ -21,7 +29,7 @@ router.get('/', async (req, res) => {
 // Create a colleague account
 router.post('/', async (req, res) => {
   try {
-    const { name, email, password, role = 'sales' } = req.body;
+    const { name, email, password, role = 'sales', branchId } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Naam, e-mail en wachtwoord zijn verplicht' });
     }
@@ -30,6 +38,10 @@ router.post('/', async (req, res) => {
     }
     if (!['admin', 'sales_manager', 'sales'].includes(role)) {
       return res.status(400).json({ error: 'Rol moet admin, sales_manager of sales zijn' });
+    }
+    const branchError = await validateBranchId(branchId);
+    if (branchError) {
+      return res.status(400).json({ error: branchError });
     }
 
     const existing = await getAsync('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
@@ -40,8 +52,8 @@ router.post('/', async (req, res) => {
     const id = uuidv4();
     const passwordHash = bcrypt.hashSync(password, 12);
     await runAsync(
-      'INSERT INTO users (id, name, email, passwordHash, role, mustChangePassword) VALUES (?, ?, ?, ?, ?, 1)',
-      [id, name, email.toLowerCase(), passwordHash, role]
+      'INSERT INTO users (id, name, email, passwordHash, role, branchId, mustChangePassword) VALUES (?, ?, ?, ?, ?, ?, 1)',
+      [id, name, email.toLowerCase(), passwordHash, role, branchId || null]
     );
 
     const user = await getAsync('SELECT * FROM users WHERE id = ?', [id]);
@@ -54,13 +66,19 @@ router.post('/', async (req, res) => {
 // Update a colleague (name, role, active, optional password reset)
 router.put('/:id', async (req, res) => {
   try {
-    const { name, role, active, password } = req.body;
+    const { name, role, active, password, branchId } = req.body;
     const user = await getAsync('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!user) {
       return res.status(404).json({ error: 'Gebruiker niet gevonden' });
     }
     if (role && !['admin', 'sales_manager', 'sales'].includes(role)) {
       return res.status(400).json({ error: 'Rol moet admin, sales_manager of sales zijn' });
+    }
+    if (branchId !== undefined) {
+      const branchError = await validateBranchId(branchId);
+      if (branchError) {
+        return res.status(400).json({ error: branchError });
+      }
     }
 
     // Don't allow deactivating/demoting the last active admin
@@ -77,7 +95,7 @@ router.put('/:id', async (req, res) => {
     const passwordHash = password ? bcrypt.hashSync(password, 12) : user.passwordHash;
 
     await runAsync(
-      'UPDATE users SET name = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ? WHERE id = ?',
+      'UPDATE users SET name = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ?, branchId = ? WHERE id = ?',
       [
         name ?? user.name,
         role ?? user.role,
@@ -86,6 +104,7 @@ router.put('/:id', async (req, res) => {
         // An admin setting a new password is a fresh temp password — force the
         // colleague to pick their own on next login, same as a brand-new account.
         password ? 1 : user.mustChangePassword,
+        branchId !== undefined ? (branchId || null) : user.branchId,
         req.params.id,
       ]
     );

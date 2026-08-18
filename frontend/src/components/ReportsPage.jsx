@@ -32,6 +32,8 @@ function StatTile({ label, value, delta }) {
 function ReportsPage() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [branchId, setBranchId] = useState('')
+  const [branches, setBranches] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -40,7 +42,7 @@ function ReportsPage() {
     try {
       setLoading(true)
       setError('')
-      setSummary(await api.getReportsSummary({ from, to }))
+      setSummary(await api.getReportsSummary({ from, to, branchId }))
     } catch (err) {
       setError('Kon rapport niet laden: ' + err.message)
     } finally {
@@ -48,7 +50,10 @@ function ReportsPage() {
     }
   }
 
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    api.getBranches().then(setBranches).catch(() => {})
+    load()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const trend = summary?.monthlyTrend
 
@@ -96,6 +101,15 @@ function ReportsPage() {
             <label>Tot</label>
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </div>
+          <div className="form-group" style={{ marginBottom: 0, maxWidth: '220px' }}>
+            <label>Vestiging</label>
+            <select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+              <option value="">Alle vestigingen</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
           <button className="btn btn-primary" onClick={load} disabled={loading}>Filteren</button>
           <a className="btn btn-outline" href={api.quotesCsvUrl()} style={{ marginLeft: 'auto' }}>Exporteer alle offertes (CSV)</a>
         </div>
@@ -138,6 +152,36 @@ function ReportsPage() {
                         <td>{s.accepted}</td>
                         <td>{s.declined}</td>
                         <td>{formatPercent(s.closeRate)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <h3 className="section-title" style={{ fontSize: '1.1rem', marginTop: '28px' }}>Per vestiging</h3>
+            {summary.byBranch.length === 0 ? (
+              <p style={{ color: 'var(--muted)' }}>Nog geen offertes in deze periode.</p>
+            ) : (
+              <div className="table-shell">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Vestiging</th>
+                      <th>Aantal offertes</th>
+                      <th>Verkocht</th>
+                      <th>Niet doorgegaan</th>
+                      <th>Sluitingsratio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.byBranch.map((b) => (
+                      <tr key={b.id || b.name}>
+                        <td style={{ fontWeight: 700 }}>{b.name}</td>
+                        <td>{b.total}</td>
+                        <td>{b.accepted}</td>
+                        <td>{b.declined}</td>
+                        <td>{formatPercent(b.closeRate)}</td>
                       </tr>
                     ))}
                   </tbody>

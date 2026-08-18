@@ -16,6 +16,20 @@ const VEHICLE_IMAGES = {
   'Starray EM-i': path.join(__dirname, '../assets/vehicles/starray-emi.jpg'),
 };
 
+// Same typeface as the web app (frontend/index.html) — kept as static weights rather
+// than the variable font, since pdfkit renders whatever instance it's given as-is.
+const FONT_DIR = path.join(__dirname, '../assets/fonts');
+const FONTS = {
+  Inter: path.join(FONT_DIR, 'Inter-Regular.ttf'),
+  'Inter-Medium': path.join(FONT_DIR, 'Inter-Medium.ttf'),
+  'Inter-SemiBold': path.join(FONT_DIR, 'Inter-SemiBold.ttf'),
+  'Inter-Bold': path.join(FONT_DIR, 'Inter-Bold.ttf'),
+};
+
+function registerFonts(doc) {
+  Object.entries(FONTS).forEach(([name, file]) => doc.registerFont(name, file));
+}
+
 const PAGE_LEFT = 40;
 const PAGE_RIGHT = 550;
 const CONTENT_WIDTH = PAGE_RIGHT - PAGE_LEFT;
@@ -46,7 +60,7 @@ function drawBadgeRow(doc, badges, y) {
   const gap = 10;
   const boxHeight = 28;
 
-  doc.fontSize(9).font('Helvetica-Bold');
+  doc.fontSize(9).font('Inter-Bold');
   const widths = badges.map(b => doc.widthOfString(b) + paddingX * 2);
   const totalWidth = widths.reduce((sum, w) => sum + w, 0) + gap * (badges.length - 1);
   let x = PAGE_LEFT + (CONTENT_WIDTH - totalWidth) / 2;
@@ -54,7 +68,7 @@ function drawBadgeRow(doc, badges, y) {
   badges.forEach((label, i) => {
     const w = widths[i];
     doc.roundedRect(x, y, w, boxHeight, 6).fill('#F3F4F6');
-    doc.fillColor('#1F4E78').fontSize(9).font('Helvetica-Bold')
+    doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold')
       .text(label, x, y + 9, { width: w, align: 'center' });
     x += w + gap;
   });
@@ -80,25 +94,87 @@ function drawPriceBar(doc, { exclVat, vat, inclVat }, y) {
     if (i > 0) {
       doc.moveTo(x, y + 16).lineTo(x, y + boxHeight - 16).stroke('#DADFE5');
     }
-    doc.fillColor('#777').fontSize(8).font('Helvetica-Bold')
+    doc.fillColor('#777').fontSize(8).font('Inter-Bold')
       .text(col.label, x, y + 17, { width: colWidth, align: 'center', characterSpacing: 0.5 });
-    doc.fillColor(col.accent ? '#1F4E78' : '#0F0F0F').fontSize(col.accent ? 16 : 13).font('Helvetica-Bold')
+    doc.fillColor(col.accent ? '#1F4E78' : '#0F0F0F').fontSize(col.accent ? 16 : 13).font('Inter-Bold')
       .text(col.value, x, y + 36, { width: colWidth, align: 'center' });
   });
 
   return y + boxHeight;
 }
 
+const EQUIPMENT_ITEM_INDENT = 12;
+
+// Exact rendered height of a category header + its bullet items at the given column
+// width, measured (not estimated) so the two-column layout below can pack columns
+// precisely instead of guessing and either wasting space or overflowing to a 3rd page.
+function measureEquipmentGroupHeight(doc, group, colWidth) {
+  doc.fontSize(11).font('Inter-Bold');
+  let height = doc.heightOfString(group.category, { width: colWidth }) + 6;
+
+  doc.fontSize(9).font('Inter');
+  const itemWidth = colWidth - EQUIPMENT_ITEM_INDENT;
+  group.items.forEach((item) => {
+    height += doc.heightOfString(item, { width: itemWidth }) + 4;
+  });
+
+  return height + 14; // gap after the group
+}
+
+// Draws one category + its bulleted items at (x, y), constrained to colWidth, and
+// returns the y position immediately below it.
+function drawEquipmentGroup(doc, group, x, y, colWidth) {
+  doc.fillColor('#1F4E78').fontSize(11).font('Inter-Bold').text(group.category, x, y, { width: colWidth });
+  y += doc.heightOfString(group.category, { width: colWidth }) + 6;
+
+  const itemWidth = colWidth - EQUIPMENT_ITEM_INDENT;
+  doc.font('Inter').fontSize(9);
+  group.items.forEach((item) => {
+    doc.circle(x + 2.5, y + 4.5, 1.5).fill('#1F4E78');
+    doc.fillColor('#000').text(item, x + EQUIPMENT_ITEM_INDENT, y, { width: itemWidth });
+    y += doc.heightOfString(item, { width: itemWidth }) + 4;
+  });
+
+  return y + 14;
+}
+
+// Lays every equipment category out across two columns (left half / right half of the
+// page) instead of one long column, so a fully-loaded trim's full list still fits on a
+// single page instead of spilling onto a second one.
+function drawEquipmentColumns(doc, equipment, topY) {
+  const colGap = 30;
+  const colWidth = (CONTENT_WIDTH - colGap) / 2;
+  const leftX = PAGE_LEFT;
+  const rightX = PAGE_LEFT + colWidth + colGap;
+  const maxY = 740;
+
+  let x = leftX;
+  let y = topY;
+  let usedRightColumn = false;
+
+  equipment.forEach((group) => {
+    const groupHeight = measureEquipmentGroupHeight(doc, group, colWidth);
+    if (y + groupHeight > maxY && !usedRightColumn) {
+      x = rightX;
+      y = topY;
+      usedRightColumn = true;
+    }
+    y = drawEquipmentGroup(doc, group, x, y, colWidth);
+  });
+}
+
 // Draws the full multi-page quote document onto an already-created PDFDocument and ends it.
 // Shared by both the direct-download route and the e-mail attachment generator so the two
 // paths can never drift out of sync with each other.
 function renderQuotePdf(doc, { quote, vehicle, items }) {
+  registerFonts(doc);
+
   // ===================== PAGE 1 — Cover =====================
   const coverLogoWidth = 110;
   doc.image(LOGO_PATH, PAGE_LEFT, 40, { width: coverLogoWidth });
 
   const kickerLabel = `OFFERTE · ${new Intl.DateTimeFormat('nl-BE', { month: 'long', year: 'numeric' }).format(new Date(quote.createdAt)).toUpperCase()}`;
-  doc.fillColor('#999').fontSize(9).font('Helvetica')
+  doc.fillColor('#999').fontSize(9).font('Inter')
     .text(kickerLabel, 300, 40 + (coverLogoWidth * LOGO_ASPECT - 9) / 2, { width: 250, align: 'right', characterSpacing: 1 });
 
   doc.moveTo(PAGE_LEFT, 85).lineTo(PAGE_RIGHT, 85).stroke('#1F4E78');
@@ -124,15 +200,15 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.moveTo(PAGE_LEFT, cursorY).lineTo(PAGE_RIGHT, cursorY).stroke('#E5E7EB');
   cursorY += 17;
 
-  doc.fillColor('#1F4E78').fontSize(10).font('Helvetica-Bold')
+  doc.fillColor('#1F4E78').fontSize(10).font('Inter-Bold')
     .text(getFuelKicker(vehicle.fuel), PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center', characterSpacing: 1.5 });
   cursorY += 22;
 
-  doc.fillColor('#0F0F0F').fontSize(28).font('Helvetica-Bold')
+  doc.fillColor('#0F0F0F').fontSize(28).font('Inter-Bold')
     .text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
   cursorY += 40;
 
-  doc.fillColor('#666').fontSize(11).font('Helvetica')
+  doc.fillColor('#666').fontSize(11).font('Inter')
     .text(`Persoonlijke offerte voor ${quote.customerName}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
   cursorY += 32;
 
@@ -153,8 +229,8 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.addPage();
   const smallLogoWidth = 70;
   doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-  doc.fillColor('#1F4E78').fontSize(18).font('Helvetica-Bold').text('Offerte', PAGE_LEFT, 40);
-  doc.fillColor('#666').fontSize(10).font('Helvetica').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+  doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
+  doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
   doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
 
   // Offer + customer info cards
@@ -166,31 +242,37 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.roundedRect(305, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
 
   let cy = cardY + 16;
-  doc.fillColor('#1F4E78').fontSize(9).font('Helvetica-Bold').text('OFFERTEGEGEVENS', 56, cy, { characterSpacing: 1 });
+  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text('OFFERTEGEGEVENS', 56, cy, { characterSpacing: 1 });
   cy += 18;
-  doc.fillColor('#000').fontSize(9).font('Helvetica');
+  doc.fillColor('#000').fontSize(9).font('Inter');
   doc.text(`Offertenummer: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
   doc.text(`Datum: ${formatDate(quote.createdAt)}`, 56, cy); cy += 16;
   doc.text(`Geldig tot: ${formatDate(quote.expiresAt)}`, 56, cy);
+  if (quote.branchName) {
+    cy += 16;
+    doc.fillColor('#000').fontSize(9).font('Inter').text(`Vestiging: ${quote.branchName}`, 56, cy);
+    cy += 13;
+    doc.fillColor('#666').fontSize(8).font('Inter').text(quote.branchAddress || '', 56, cy);
+  }
 
   let cy2 = cardY + 16;
-  doc.fillColor('#1F4E78').fontSize(9).font('Helvetica-Bold').text('KLANTGEGEVENS', 321, cy2, { characterSpacing: 1 });
+  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text('KLANTGEGEVENS', 321, cy2, { characterSpacing: 1 });
   cy2 += 18;
-  doc.fillColor('#000').fontSize(9).font('Helvetica-Bold').text(quote.customerName, 321, cy2);
+  doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(quote.customerName, 321, cy2);
   cy2 += 16;
-  doc.font('Helvetica');
+  doc.font('Inter');
   if (quote.customerCompany) { doc.text(quote.customerCompany, 321, cy2); cy2 += 16; }
   if (quote.customerEmail) { doc.text(quote.customerEmail, 321, cy2); cy2 += 16; }
   if (quote.customerPhone) { doc.text(quote.customerPhone, 321, cy2); }
 
   let yPos = cardY + cardHeight + 24;
 
-  doc.fillColor('#999').fontSize(8).font('Helvetica')
+  doc.fillColor('#999').fontSize(8).font('Inter')
     .text('Alle vermelde prijzen zijn Geely-adviesprijzen, inclusief 21% BTW.', PAGE_LEFT, yPos);
   yPos += 16;
 
   // Pricing breakdown table
-  doc.fontSize(9).font('Helvetica-Bold').fillColor('#FFF');
+  doc.fontSize(9).font('Inter-Bold').fillColor('#FFF');
   doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 24).fill('#1F4E78');
   doc.fillColor('#FFF').text('Omschrijving', 50, yPos + 7);
   doc.text('Eenheidsprijs', 350, yPos + 7);
@@ -203,7 +285,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     ...items.map(item => ({ name: item.itemName, unitPrice: item.unitPrice, quantity: item.quantity, totalPrice: item.totalPrice })),
   ];
 
-  doc.font('Helvetica').fontSize(9);
+  doc.font('Inter').fontSize(9);
   rows.forEach((row, index) => {
     if (index % 2 === 1) {
       doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 20).fill('#F9FAFB');
@@ -219,7 +301,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.moveTo(PAGE_LEFT, yPos + 5).lineTo(PAGE_RIGHT, yPos + 5).stroke('#CCC');
   yPos += 25;
 
-  doc.fontSize(9).font('Helvetica').fillColor('#000');
+  doc.fontSize(9).font('Inter').fillColor('#000');
   doc.text('Subtotaal (incl. BTW):', 350, yPos, { width: 120 });
   doc.text(formatPrice(quote.basePrice + quote.accessories), 480, yPos, { width: 70, align: 'right' });
   yPos += 20;
@@ -243,7 +325,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.roundedRect(boxX, yPos, boxWidth, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 
   let rowY = yPos + 16;
-  doc.font('Helvetica').fontSize(9).fillColor('#333');
+  doc.font('Inter').fontSize(9).fillColor('#333');
   doc.text('Totaalprijs excl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
   doc.text(formatPrice(quote.subtotal), valueX, rowY, { width: valueWidth, align: 'right' });
 
@@ -254,7 +336,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   rowY += 24;
   doc.moveTo(boxX + boxPadding, rowY - 8).lineTo(boxX + boxWidth - boxPadding, rowY - 8).stroke('#CBD3DB');
 
-  doc.font('Helvetica-Bold').fontSize(12).fillColor('#1F4E78');
+  doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
   doc.text('Totaalprijs incl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
   doc.text(formatPrice(quote.totalPrice), valueX, rowY, { width: valueWidth, align: 'right' });
 
@@ -262,9 +344,9 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
 
   // Notes
   if (quote.notes) {
-    doc.fillColor('#000').fontSize(9).font('Helvetica-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
+    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
     yPos += 14;
-    doc.fontSize(8).font('Helvetica').fillColor('#333');
+    doc.fontSize(8).font('Inter').fillColor('#333');
     const notesHeight = doc.heightOfString(quote.notes, { width: CONTENT_WIDTH });
     doc.text(quote.notes, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
     yPos += notesHeight + 15;
@@ -279,10 +361,10 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   const sigHeight = 80;
   doc.roundedRect(PAGE_LEFT, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
   doc.roundedRect(305, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
-  doc.fillColor('#999').fontSize(8).font('Helvetica-Bold');
+  doc.fillColor('#999').fontSize(8).font('Inter-Bold');
   doc.text('HANDTEKENING VERKOPER', PAGE_LEFT + 12, yPos + 12, { characterSpacing: 0.5 });
   doc.text('HANDTEKENING KLANT — VOOR AKKOORD', 317, yPos + 12, { width: sigWidth - 24, characterSpacing: 0.5 });
-  doc.fontSize(8).font('Helvetica').fillColor('#999');
+  doc.fontSize(8).font('Inter').fillColor('#999');
   if (quote.createdByName) {
     doc.text(quote.createdByName, PAGE_LEFT + 12, yPos + 32);
   }
@@ -295,23 +377,17 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.text('Geely Belgium | Professionele Voertuigoplossingen', PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
   doc.text('Deze offerte is 30 dagen geldig vanaf bovenstaande datum.', PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
 
-  // ===================== Standard equipment (own page(s)) =====================
+  // ===================== Standard equipment (one page, two columns) =====================
+  // T&C's are appended after this on their own page(s) by whatever calls renderQuotePdf next.
   const equipment = getStandardEquipment(vehicle.name, vehicle.model);
   if (equipment.length > 0) {
     doc.addPage();
     doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-    doc.fillColor('#1F4E78').fontSize(18).font('Helvetica-Bold').text('Standaarduitrusting', PAGE_LEFT, 40);
-    doc.fontSize(10).font('Helvetica').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Standaarduitrusting', PAGE_LEFT, 40);
+    doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
     doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
-    doc.moveDown(3);
 
-    equipment.forEach((group, index) => {
-      if (index > 0) doc.moveDown(1);
-      doc.fontSize(12).font('Helvetica-Bold').fillColor('#1F4E78').text(group.category, PAGE_LEFT);
-      doc.moveDown(0.4);
-      doc.fontSize(9).font('Helvetica').fillColor('#000');
-      doc.list(group.items, 50, doc.y, { bulletRadius: 1.5, textIndent: 8, width: 500, lineGap: 2 });
-    });
+    drawEquipmentColumns(doc, equipment, 108);
   }
 
   // Page numbers on every page. Drawing this far down the page would normally trip pdfkit's
@@ -322,7 +398,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     doc.switchToPage(i);
     const bottomMargin = doc.page.margins.bottom;
     doc.page.margins.bottom = 0;
-    doc.fillColor('#AAA').fontSize(8).font('Helvetica')
+    doc.fillColor('#AAA').fontSize(8).font('Inter')
       .text(`Pagina ${i + 1} van ${pageRange.count}`, PAGE_LEFT, 760, { width: CONTENT_WIDTH, align: 'right', lineBreak: false });
     doc.page.margins.bottom = bottomMargin;
   }

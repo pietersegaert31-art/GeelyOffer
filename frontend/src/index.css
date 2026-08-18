@@ -21,7 +21,7 @@
   --shadow: 0 1px 2px rgba(15, 15, 15, 0.04);
   --radius: 4px;
   --radius-lg: 6px;
-  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -750,6 +750,46 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: #fff;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.compare-table th,
+.compare-table td {
+  padding: 7px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.compare-table thead th {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.compare-row-label {
+  text-align: left !important;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.compare-col-active {
+  background: var(--primary-soft);
+  color: var(--text);
+}
+
+.compare-table thead th.compare-col-active {
+  font-weight: 700;
 }
 
 .data-table {

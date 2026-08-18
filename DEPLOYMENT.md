@@ -51,7 +51,7 @@ Under **Environment**, add:
 | `ADMIN_NAME` | e.g. `Beheerder` | |
 | `ADMIN_PASSWORD` | *(a real password)* | If you skip this, a random one is generated and printed to the Render service logs once — set it explicitly instead so you don't have to go digging through logs |
 
-Optional, only if you want the "e-mail PDF to customer" button to work:
+Optional, only if you want the "e-mail PDF to customer" button and the "forgot password" reset e-mail to work:
 
 | Key | Value |
 |---|---|
@@ -59,9 +59,10 @@ Optional, only if you want the "e-mail PDF to customer" button to work:
 | `SMTP_PORT` | usually `587` |
 | `SMTP_USER` | SMTP username |
 | `SMTP_PASS` | SMTP password |
-| `SMTP_FROM` | the "from" address quotes are sent from |
+| `SMTP_FROM` | the "from" address quotes and reset e-mails are sent from |
+| `FRONTEND_URL` | your Render URL, e.g. `https://geely-offertes.onrender.com` | **Required** if you set the SMTP vars above — the password-reset e-mail builds its link from this. Without it, that link falls back to `http://localhost:3000` and won't work for anyone but you, on your own machine. |
 
-You don't need `FRONTEND_URL` or `PORT` — Render sets `PORT` itself, and the frontend is served from the same origin so there's no cross-origin request to configure.
+You don't need `PORT` — Render sets it itself. `FRONTEND_URL` is otherwise unused (the frontend is served from the same origin, so there's no CORS to configure) — it only matters for the reset-link e-mail above.
 
 ## 5. Deploy
 

@@ -18,6 +18,54 @@ function needsApprovalWarning(discountType, discountValue, role) {
     : discountValue > DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE
 }
 
+// Known specification keys, in display order — label lookup with a fallback to the
+// raw key so an unrecognized future spec still shows up instead of silently vanishing.
+const SPEC_LABELS = {
+  battery: 'Batterij',
+  range: 'Actieradius',
+  evRange: 'Elektrische actieradius',
+  totalRange: 'Totale actieradius',
+  charger: 'Laden',
+  wheels: 'Wielen',
+}
+const SPEC_KEY_ORDER = ['battery', 'range', 'evRange', 'totalRange', 'charger', 'wheels']
+
+function parseSpecs(vehicle) {
+  try {
+    return JSON.parse(vehicle.specifications || '{}')
+  } catch {
+    return {}
+  }
+}
+
+// Builds the row list for the variant-comparison table — cheapest to priciest. Only
+// rows that actually differ between variants are kept (except Basisprijs, always
+// shown) — trims of the same model often share power/torque/charging, and listing
+// those as if they were differences would defeat the point of a "what's different" view.
+function buildComparisonRows(variants) {
+  const candidateRows = [{ label: 'Basisprijs', values: variants.map((v) => formatPrice(v.basePrice)), always: true }]
+
+  if (variants.some((v) => v.power)) {
+    candidateRows.push({ label: 'Vermogen', values: variants.map((v) => (v.power ? `${v.power} pk` : '—')) })
+  }
+  if (variants.some((v) => v.torque)) {
+    candidateRows.push({ label: 'Koppel', values: variants.map((v) => (v.torque ? `${v.torque} Nm` : '—')) })
+  }
+  if (variants.some((v) => v.consumption)) {
+    candidateRows.push({
+      label: 'Verbruik',
+      values: variants.map((v) => (v.consumption ? `${v.consumption} ${v.fuel === 'Elektrisch' ? 'kWh' : 'L'}/100km` : '—')),
+    })
+  }
+
+  const specs = variants.map(parseSpecs)
+  SPEC_KEY_ORDER.filter((key) => specs.some((s) => s[key])).forEach((key) => {
+    candidateRows.push({ label: SPEC_LABELS[key], values: specs.map((s) => s[key] || '—') })
+  })
+
+  return candidateRows.filter((row) => row.always || new Set(row.values).size > 1)
+}
+
 function QuoteBuilder({ onQuoteCreated }) {
   const { user } = useAuth()
   const [step, setStep] = useState(1)
@@ -375,40 +423,80 @@ function QuoteBuilder({ onQuoteCreated }) {
           )}
         </div>
 
-        {pricing && selectedVariant && (
+        {((pricing && selectedVariant) || (step === 2 && selectedModel)) && (
           <aside className="builder-side">
-            <div className="card summary-card">
-              <div className="section-kicker">Actuele offerte</div>
-              <h3 className="section-title" style={{ marginBottom: '12px' }}>{selectedVariant.name}</h3>
-              <div className="summary-row">
-                <span>Uitvoering</span>
-                <strong>{selectedVariant.model}</strong>
-              </div>
-              <div className="summary-row">
-                <span>Basisprijs</span>
-                <strong>{formatPrice(selectedVariant.basePrice)}</strong>
-              </div>
-              {selectedAccessories.length > 0 && (
+            {pricing && selectedVariant && (
+              <div className="card summary-card">
+                <div className="section-kicker">Actuele offerte</div>
+                <h3 className="section-title" style={{ marginBottom: '12px' }}>{selectedVariant.name}</h3>
                 <div className="summary-row">
-                  <span>Opties</span>
-                  <strong>{formatPrice(selectedAccessories.reduce((sum, acc) => sum + acc.price, 0))}</strong>
+                  <span>Uitvoering</span>
+                  <strong>{selectedVariant.model}</strong>
                 </div>
-              )}
-              {discountValue > 0 && (
                 <div className="summary-row">
-                  <span>Korting</span>
-                  <strong>{discountType === 'fixed' ? formatPrice(discountValue) : `${discountValue}%`}</strong>
+                  <span>Basisprijs</span>
+                  <strong>{formatPrice(selectedVariant.basePrice)}</strong>
                 </div>
-              )}
-              <div className="summary-total">
-                <span>Totaal incl. BTW</span>
-                <span>{formatPrice(pricing.total)}</span>
+                {selectedAccessories.length > 0 && (
+                  <div className="summary-row">
+                    <span>Opties</span>
+                    <strong>{formatPrice(selectedAccessories.reduce((sum, acc) => sum + acc.price, 0))}</strong>
+                  </div>
+                )}
+                {discountValue > 0 && (
+                  <div className="summary-row">
+                    <span>Korting</span>
+                    <strong>{discountType === 'fixed' ? formatPrice(discountValue) : `${discountValue}%`}</strong>
+                  </div>
+                )}
+                <div className="summary-total">
+                  <span>Totaal incl. BTW</span>
+                  <span>{formatPrice(pricing.total)}</span>
+                </div>
+                <div className="summary-total-note">
+                  <span>Totaal excl. BTW</span>
+                  <span>{formatPrice(pricing.subtotal)}</span>
+                </div>
               </div>
-              <div className="summary-total-note">
-                <span>Totaal excl. BTW</span>
-                <span>{formatPrice(pricing.subtotal)}</span>
-              </div>
-            </div>
+            )}
+
+            {step === 2 && selectedModel && (() => {
+              const variants = vehicles
+                .filter((v) => v.name === selectedModel)
+                .sort((a, b) => a.basePrice - b.basePrice)
+              if (variants.length < 2) return null
+              const rows = buildComparisonRows(variants)
+              return (
+                <div className="card">
+                  <div className="section-kicker">Vergelijken</div>
+                  <h3 className="section-title" style={{ fontSize: '1.05rem', marginBottom: '12px' }}>Verschil per uitvoering</h3>
+                  <div className="table-shell">
+                    <table className="compare-table">
+                      <thead>
+                        <tr>
+                          <th></th>
+                          {variants.map((v) => (
+                            <th key={v.id} className={selectedVariant?.id === v.id ? 'compare-col-active' : ''}>{v.model}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr key={row.label}>
+                            <td className="compare-row-label">{row.label}</td>
+                            {row.values.map((value, i) => (
+                              <td key={variants[i].id} className={selectedVariant?.id === variants[i].id ? 'compare-col-active' : ''}>
+                                {value}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            })()}
           </aside>
         )}
       </div>

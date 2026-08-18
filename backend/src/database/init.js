@@ -76,6 +76,26 @@ function seedGeelyE2IfMissing(database) {
   });
 }
 
+function seedBranchesIfEmpty(database) {
+  database.get('SELECT COUNT(*) AS count FROM branches', (err, row) => {
+    if (err) {
+      console.error('Error checking branches seed count:', err);
+      return;
+    }
+    if (row.count > 0) return;
+
+    const branches = [
+      { id: 'roeselare', name: 'Geely Roeselare', address: 'Ovenstraat 15, 8800 Roeselare' },
+      { id: 'brugge', name: 'Geely Brugge', address: 'Pathoekeweg 7, 8000 Brugge' },
+      { id: 'oostende', name: 'Geely Oostende', address: 'Torhoutsesteenweg 710, 8400 Oostende' },
+    ];
+    const insertBranch = database.prepare('INSERT INTO branches (id, name, address, active) VALUES (?, ?, ?, 1)');
+    branches.forEach((b) => insertBranch.run(b.id, b.name, b.address));
+    insertBranch.finalize();
+    console.log('✓ Seeded default branches');
+  });
+}
+
 function seedAccessoriesIfEmpty(database) {
   database.get('SELECT COUNT(*) AS count FROM accessories', (err, row) => {
     if (err) {
@@ -151,6 +171,21 @@ export function initializeDatabase() {
     addColumnIfMissing(database, 'users', 'mustChangePassword', 'BOOLEAN DEFAULT 0');
     addColumnIfMissing(database, 'users', 'passwordResetTokenHash', 'TEXT');
     addColumnIfMissing(database, 'users', 'passwordResetExpires', 'DATETIME');
+    addColumnIfMissing(database, 'users', 'branchId', 'TEXT');
+
+    // Branches (physical dealership locations) — a user belongs to one, and every quote
+    // they create snapshots that branch's name/address at creation time (see the
+    // quotes.branchName/branchAddress migration below) so it shows up on the PDF and can
+    // be filtered on in reports, regardless of whether the user later changes branch.
+    database.run(`
+      CREATE TABLE IF NOT EXISTS branches (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        address TEXT NOT NULL,
+        active BOOLEAN DEFAULT 1,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     // Vehicles table
     database.run(`
@@ -214,6 +249,11 @@ export function initializeDatabase() {
     // Migrations for columns added after the original release
     addColumnIfMissing(database, 'quotes', 'createdBy', 'TEXT');
     addColumnIfMissing(database, 'quotes', 'createdByName', 'TEXT');
+    // Snapshotted from the creating user's branch at creation time — not a live FK
+    // lookup, so it stays accurate on the PDF even if that user later moves branches.
+    addColumnIfMissing(database, 'quotes', 'branchId', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'branchName', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'branchAddress', 'TEXT');
     // Campaign discounts: a quote's discount is either a percentage (existing
     // discountPercentage column, unchanged) or a flat euro amount (discountEuro) —
     // discountType says which one is in effect, defaulting existing rows to 'percentage'
@@ -266,6 +306,28 @@ export function initializeDatabase() {
         details TEXT,
         performedBy TEXT,
         performedByName TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Uploaded documents (price lists, campaign/discount docs, ...). Spreadsheets
+    // (xlsx/csv) get parsed into proposedChanges for review; PDF/Word are stored for
+    // reference only — nothing is applied to real prices without an explicit,
+    // itemized confirmation via the /apply endpoint.
+    database.run(`
+      CREATE TABLE IF NOT EXISTS imports (
+        id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        storedFilename TEXT NOT NULL,
+        fileSize INTEGER,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'uploaded',
+        proposedChanges TEXT,
+        unmatchedRows TEXT,
+        parseError TEXT,
+        appliedAt DATETIME,
+        uploadedBy TEXT,
+        uploadedByName TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -421,6 +483,7 @@ export function initializeDatabase() {
     });
 
     seedGeelyE2IfMissing(database);
+    seedBranchesIfEmpty(database);
     seedAccessoriesIfEmpty(database);
     bootstrapAdminIfNoUsers(database);
 

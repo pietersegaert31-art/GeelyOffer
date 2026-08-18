@@ -3,13 +3,17 @@ import AdminVehicles from './AdminVehicles'
 import AdminAccessories from './AdminAccessories'
 import AdminUsers from './AdminUsers'
 import AdminAuditLog from './AdminAuditLog'
+import AdminImports from './AdminImports'
+import AdminBranches from './AdminBranches'
 import { api } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
 const ALL_TABS = [
   { id: 'vehicles', label: 'Voertuigen', adminOnly: true },
   { id: 'accessories', label: 'Opties', adminOnly: false },
+  { id: 'branches', label: 'Vestigingen', adminOnly: true },
   { id: 'users', label: 'Gebruikers', adminOnly: true },
+  { id: 'imports', label: 'Import', adminOnly: false },
   { id: 'auditlog', label: 'Logboek', adminOnly: false },
 ]
 
@@ -40,7 +44,9 @@ function AdminPage() {
 
       {tab === 'vehicles' && isAdmin && <AdminVehicles />}
       {tab === 'accessories' && <AdminAccessories />}
+      {tab === 'branches' && isAdmin && <AdminBranches />}
       {tab === 'users' && isAdmin && <AdminUsers />}
+      {tab === 'imports' && <AdminImports />}
       {tab === 'auditlog' && <AdminAuditLog />}
 
       {isAdmin && (

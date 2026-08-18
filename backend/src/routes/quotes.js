@@ -23,6 +23,16 @@ function computeDiscountApprovalStatus(discountType, discountValue, actorRole) {
   return discountNeedsApproval(discountType, discountValue) ? 'pending' : 'not_required';
 }
 
+// The branch a quote gets attributed to is always the creating user's own assigned
+// branch — never something the client can pass in — so a rep can't misattribute a sale
+// to a different branch than the one they actually work from.
+async function resolveActorBranch(user) {
+  if (!user.branchId) return { branchId: null, branchName: null, branchAddress: null };
+  const branch = await getAsync('SELECT * FROM branches WHERE id = ?', [user.branchId]);
+  if (!branch) return { branchId: null, branchName: null, branchAddress: null };
+  return { branchId: branch.id, branchName: branch.name, branchAddress: branch.address };
+}
+
 // Resolve client-submitted accessory lines against the authoritative accessories
 // table by id — a quote's price must never be derived from a client-supplied price,
 // name, or line total, or any authenticated user could quote a customer whatever
@@ -209,11 +219,12 @@ router.post('/', async (req, res) => {
     // Calculate pricing
     const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue);
     const discountApprovalStatus = computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
+    const branch = await resolveActorBranch(req.user);
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         customerName,
@@ -236,6 +247,9 @@ router.post('/', async (req, res) => {
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days expiry
         req.user.id,
         req.user.name,
+        branch.branchId,
+        branch.branchName,
+        branch.branchAddress,
       ]
     );
 
@@ -285,10 +299,13 @@ router.post('/:id/duplicate', async (req, res) => {
     // approval it didn't earn.
     const duplicateDiscountValue = source.discountType === 'fixed' ? source.discountEuro : source.discountPercentage;
     const discountApprovalStatus = computeDiscountApprovalStatus(source.discountType, duplicateDiscountValue, req.user.role);
+    // Same reasoning as the approval re-evaluation above — the copy is attributed to
+    // whoever is actually making it, not wherever the original happened to be made.
+    const branch = await resolveActorBranch(req.user);
 
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         `${source.customerName} (kopie)`,
@@ -311,6 +328,9 @@ router.post('/:id/duplicate', async (req, res) => {
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         req.user.id,
         req.user.name,
+        branch.branchId,
+        branch.branchName,
+        branch.branchAddress,
       ]
     );
 
