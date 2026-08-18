@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { getAsync, allAsync } from '../database/init.js';
 import { formatPrice } from '../utils/pricing.js';
 import { getStandardEquipment } from '../data/standardEquipment.js';
+import { getTechnicalSpecs, WARRANTY_INFO } from '../data/technicalSpecs.js';
 import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -106,16 +107,16 @@ function drawPriceBar(doc, { exclVat, vat, inclVat }, y) {
 const EQUIPMENT_ITEM_INDENT = 12;
 
 // Exact rendered height of a category header + its bullet items at the given column
-// width, measured (not estimated) so the two-column layout below can pack columns
-// precisely instead of guessing and either wasting space or overflowing to a 3rd page.
-function measureEquipmentGroupHeight(doc, group, colWidth) {
-  doc.fontSize(11).font('Inter-Bold');
+// width and font size, measured (not estimated) so the two-column layout below can pack
+// columns precisely instead of guessing and either wasting space or overflowing a page.
+function measureEquipmentGroupHeight(doc, group, colWidth, fontSize) {
+  doc.fontSize(fontSize + 2).font('Inter-Bold');
   let height = doc.heightOfString(group.category, { width: colWidth }) + 6;
 
-  doc.fontSize(9).font('Inter');
+  doc.fontSize(fontSize).font('Inter');
   const itemWidth = colWidth - EQUIPMENT_ITEM_INDENT;
   group.items.forEach((item) => {
-    height += doc.heightOfString(item, { width: itemWidth }) + 4;
+    height += doc.heightOfString(item, { width: itemWidth }) + fontSize * 0.4;
   });
 
   return height + 14; // gap after the group
@@ -123,44 +124,199 @@ function measureEquipmentGroupHeight(doc, group, colWidth) {
 
 // Draws one category + its bulleted items at (x, y), constrained to colWidth, and
 // returns the y position immediately below it.
-function drawEquipmentGroup(doc, group, x, y, colWidth) {
-  doc.fillColor('#1F4E78').fontSize(11).font('Inter-Bold').text(group.category, x, y, { width: colWidth });
+function drawEquipmentGroup(doc, group, x, y, colWidth, fontSize) {
+  doc.fillColor('#1F4E78').fontSize(fontSize + 2).font('Inter-Bold').text(group.category, x, y, { width: colWidth });
   y += doc.heightOfString(group.category, { width: colWidth }) + 6;
 
   const itemWidth = colWidth - EQUIPMENT_ITEM_INDENT;
-  doc.font('Inter').fontSize(9);
+  const lineGap = fontSize * 0.4;
+  doc.font('Inter').fontSize(fontSize);
   group.items.forEach((item) => {
-    doc.circle(x + 2.5, y + 4.5, 1.5).fill('#1F4E78');
+    doc.circle(x + 2.5, y + fontSize * 0.5, 1.5).fill('#1F4E78');
     doc.fillColor('#000').text(item, x + EQUIPMENT_ITEM_INDENT, y, { width: itemWidth });
-    y += doc.heightOfString(item, { width: itemWidth }) + 4;
+    y += doc.heightOfString(item, { width: itemWidth }) + lineGap;
   });
 
   return y + 14;
 }
 
+// Tries to pack every group into two columns (left half / right half) without any
+// column exceeding maxY. Returns the layout plan (which column + y for each group) if
+// it fits at this font size, or null if it doesn't — so the caller can retry smaller.
+function packEquipmentColumns(doc, equipment, topY, maxY, colWidth, fontSize) {
+  const plan = [];
+  let y = topY;
+  let usedRightColumn = false;
+
+  for (const group of equipment) {
+    const groupHeight = measureEquipmentGroupHeight(doc, group, colWidth, fontSize);
+    if (y + groupHeight > maxY) {
+      if (usedRightColumn) return null; // doesn't fit even in 2 columns at this size
+      usedRightColumn = true;
+      y = topY;
+    }
+    plan.push({ group, column: usedRightColumn ? 1 : 0, y });
+    y += groupHeight;
+  }
+  return plan;
+}
+
 // Lays every equipment category out across two columns (left half / right half of the
-// page) instead of one long column, so a fully-loaded trim's full list still fits on a
-// single page instead of spilling onto a second one.
+// page) instead of one long column, shrinking the font a step at a time until a fully-
+// loaded trim's full list fits on a single page — a fixed font size can't guarantee that
+// for every model (some trims have far more standard equipment than others).
 function drawEquipmentColumns(doc, equipment, topY) {
   const colGap = 30;
   const colWidth = (CONTENT_WIDTH - colGap) / 2;
   const leftX = PAGE_LEFT;
   const rightX = PAGE_LEFT + colWidth + colGap;
-  const maxY = 740;
+  const maxY = 745;
+  const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5];
 
-  let x = leftX;
+  let plan = null;
+  let chosenFontSize = fontSizes[fontSizes.length - 1];
+  for (const fontSize of fontSizes) {
+    plan = packEquipmentColumns(doc, equipment, topY, maxY, colWidth, fontSize);
+    if (plan) {
+      chosenFontSize = fontSize;
+      break;
+    }
+  }
+  // Even the smallest size didn't fit two columns cleanly — lay it out anyway at that
+  // size rather than lose content; pdfkit's own page overflow is the fallback here, not
+  // a scenario the current equipment lists actually reach.
+  if (!plan) {
+    plan = packEquipmentColumns(doc, equipment, topY, Infinity, colWidth, chosenFontSize);
+  }
+
+  plan.forEach(({ group, column, y }) => {
+    drawEquipmentGroup(doc, group, column === 0 ? leftX : rightX, y, colWidth, chosenFontSize);
+  });
+}
+
+const SPEC_SECTION_TITLES = {
+  drivetrain: 'Aandrijflijn',
+  chassis: 'Chassis',
+  performance: 'Prestaties',
+  weight: 'Gewicht & trekken',
+  charging: 'Actieradius & laden',
+  dimensions: 'Afmetingen',
+};
+
+// Exact rendered height of a label/value spec table (section title + its rows) at the
+// given column width — same measure-first approach as the equipment groups above, so
+// the two-column packer below can place sections precisely.
+function measureSpecSectionHeight(doc, section, colWidth, fontSize) {
+  doc.fontSize(fontSize + 2).font('Inter-Bold');
+  let height = doc.heightOfString(section.title, { width: colWidth }) + 8;
+
+  const labelWidth = Math.round(colWidth * 0.5);
+  const valueWidth = colWidth - labelWidth;
+  section.rows.forEach((row) => {
+    doc.fontSize(fontSize).font('Inter');
+    const labelHeight = doc.heightOfString(row.label, { width: labelWidth });
+    doc.font('Inter-SemiBold');
+    const valueHeight = doc.heightOfString(row.value, { width: valueWidth });
+    height += Math.max(labelHeight, valueHeight) + 6;
+  });
+
+  return height + 16; // gap after the section
+}
+
+// Draws one spec table (title + label/value rows, value right-aligned) at (x, y),
+// constrained to colWidth, and returns the y position immediately below it.
+function drawSpecSection(doc, section, x, y, colWidth, fontSize) {
+  doc.fillColor('#1F4E78').fontSize(fontSize + 2).font('Inter-Bold').text(section.title, x, y, { width: colWidth });
+  y += doc.heightOfString(section.title, { width: colWidth }) + 8;
+
+  const labelWidth = Math.round(colWidth * 0.5);
+  const valueWidth = colWidth - labelWidth;
+  section.rows.forEach((row) => {
+    doc.font('Inter').fontSize(fontSize);
+    const labelHeight = doc.heightOfString(row.label, { width: labelWidth });
+    doc.font('Inter-SemiBold').fontSize(fontSize);
+    const valueHeight = doc.heightOfString(row.value, { width: valueWidth });
+    const rowHeight = Math.max(labelHeight, valueHeight);
+
+    doc.font('Inter').fillColor('#666').text(row.label, x, y, { width: labelWidth });
+    doc.font('Inter-SemiBold').fillColor('#000').text(row.value, x + labelWidth, y, { width: valueWidth, align: 'right' });
+    y += rowHeight + 6;
+  });
+
+  return y + 16;
+}
+
+// Same dry-run-then-draw packing strategy as packEquipmentColumns, generalized for
+// label/value spec tables instead of bulleted lists.
+function packSpecColumns(doc, sections, topY, maxY, colWidth, fontSize) {
+  const plan = [];
   let y = topY;
   let usedRightColumn = false;
 
-  equipment.forEach((group) => {
-    const groupHeight = measureEquipmentGroupHeight(doc, group, colWidth);
-    if (y + groupHeight > maxY && !usedRightColumn) {
-      x = rightX;
-      y = topY;
+  for (const section of sections) {
+    const sectionHeight = measureSpecSectionHeight(doc, section, colWidth, fontSize);
+    if (y + sectionHeight > maxY) {
+      if (usedRightColumn) return null;
       usedRightColumn = true;
+      y = topY;
     }
-    y = drawEquipmentGroup(doc, group, x, y, colWidth);
+    plan.push({ section, column: usedRightColumn ? 1 : 0, y });
+    y += sectionHeight;
+  }
+  return plan;
+}
+
+// Left-half/right-half packing for the six spec sections, shrinking the font a step at a
+// time (same rationale as drawEquipmentColumns) so it always fits one page.
+function drawSpecColumns(doc, sections, topY) {
+  const colGap = 30;
+  const colWidth = (CONTENT_WIDTH - colGap) / 2;
+  const leftX = PAGE_LEFT;
+  const rightX = PAGE_LEFT + colWidth + colGap;
+  const maxY = 745;
+  const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5];
+
+  let plan = null;
+  let chosenFontSize = fontSizes[fontSizes.length - 1];
+  for (const fontSize of fontSizes) {
+    plan = packSpecColumns(doc, sections, topY, maxY, colWidth, fontSize);
+    if (plan) {
+      chosenFontSize = fontSize;
+      break;
+    }
+  }
+  if (!plan) {
+    plan = packSpecColumns(doc, sections, topY, Infinity, colWidth, chosenFontSize);
+  }
+
+  plan.forEach(({ section, column, y }) => {
+    drawSpecSection(doc, section, column === 0 ? leftX : rightX, y, colWidth, chosenFontSize);
   });
+}
+
+// Draws the three warranty/service tiles (fabrieksgarantie, batterijgarantie, pechhulp) —
+// same visual language as the cover page's price bar (rounded panel, vertical dividers).
+function drawWarrantyTiles(doc, tiles, y) {
+  const boxHeight = 130;
+  doc.lineWidth(1);
+  doc.roundedRect(PAGE_LEFT, y, CONTENT_WIDTH, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
+
+  const colWidth = CONTENT_WIDTH / tiles.length;
+  const padding = 18;
+  tiles.forEach((tile, i) => {
+    const x = PAGE_LEFT + i * colWidth;
+    if (i > 0) {
+      doc.moveTo(x, y + 16).lineTo(x, y + boxHeight - 16).stroke('#DADFE5');
+    }
+    const textX = x + padding;
+    const textWidth = colWidth - padding * (i === tiles.length - 1 ? 2 : 1.5);
+
+    doc.fillColor('#1F4E78').fontSize(20).font('Inter-Bold').text(tile.title, textX, y + 18, { width: textWidth });
+    doc.fillColor('#000').fontSize(10).font('Inter-SemiBold').text(tile.subtitle, textX, y + 44, { width: textWidth });
+    doc.fillColor('#666').fontSize(8).font('Inter').text(tile.text, textX, y + 62, { width: textWidth });
+  });
+
+  return y + boxHeight;
 }
 
 // Draws the full multi-page quote document onto an already-created PDFDocument and ends it.
@@ -378,7 +534,6 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.text('Deze offerte is 30 dagen geldig vanaf bovenstaande datum.', PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
 
   // ===================== Standard equipment (one page, two columns) =====================
-  // T&C's are appended after this on their own page(s) by whatever calls renderQuotePdf next.
   const equipment = getStandardEquipment(vehicle.name, vehicle.model);
   if (equipment.length > 0) {
     doc.addPage();
@@ -389,6 +544,30 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
 
     drawEquipmentColumns(doc, equipment, 108);
   }
+
+  // ===================== Technische gegevens & afmetingen (own page, two columns) =====================
+  const techSpecs = getTechnicalSpecs(vehicle.name, vehicle.model);
+  if (techSpecs) {
+    doc.addPage();
+    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Technische gegevens', PAGE_LEFT, 40);
+    doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+
+    const sections = Object.entries(SPEC_SECTION_TITLES)
+      .filter(([key]) => techSpecs[key]?.length)
+      .map(([key, title]) => ({ title, rows: techSpecs[key] }));
+    drawSpecColumns(doc, sections, 108);
+  }
+
+  // ===================== Garantie & service (own page) =====================
+  // T&C's are appended after this on their own page(s) by whatever calls renderQuotePdf next.
+  doc.addPage();
+  doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+  doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Garantie & service', PAGE_LEFT, 40);
+  doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+  doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+  drawWarrantyTiles(doc, WARRANTY_INFO, 108);
 
   // Page numbers on every page. Drawing this far down the page would normally trip pdfkit's
   // auto page-break (it would silently insert a fresh blank page and draw there instead) —
