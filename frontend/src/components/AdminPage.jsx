@@ -2,16 +2,22 @@ import React, { useState } from 'react'
 import AdminVehicles from './AdminVehicles'
 import AdminAccessories from './AdminAccessories'
 import AdminUsers from './AdminUsers'
+import AdminAuditLog from './AdminAuditLog'
 import { api } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
 
-const TABS = [
-  { id: 'vehicles', label: 'Voertuigen' },
-  { id: 'accessories', label: 'Opties' },
-  { id: 'users', label: 'Gebruikers' },
+const ALL_TABS = [
+  { id: 'vehicles', label: 'Voertuigen', adminOnly: true },
+  { id: 'accessories', label: 'Opties', adminOnly: false },
+  { id: 'users', label: 'Gebruikers', adminOnly: true },
+  { id: 'auditlog', label: 'Logboek', adminOnly: false },
 ]
 
 function AdminPage() {
-  const [tab, setTab] = useState('vehicles')
+  const { user } = useAuth()
+  const isAdmin = user.role === 'admin'
+  const tabs = ALL_TABS.filter((t) => isAdmin || !t.adminOnly)
+  const [tab, setTab] = useState(isAdmin ? 'vehicles' : 'accessories')
 
   return (
     <div>
@@ -20,7 +26,7 @@ function AdminPage() {
         <h2 className="section-title" style={{ marginBottom: '16px' }}>Instellingen</h2>
 
         <div className="admin-tabs">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               className={`nav-pill ${tab === t.id ? 'active' : ''}`}
@@ -32,18 +38,21 @@ function AdminPage() {
         </div>
       </div>
 
-      {tab === 'vehicles' && <AdminVehicles />}
+      {tab === 'vehicles' && isAdmin && <AdminVehicles />}
       {tab === 'accessories' && <AdminAccessories />}
-      {tab === 'users' && <AdminUsers />}
+      {tab === 'users' && isAdmin && <AdminUsers />}
+      {tab === 'auditlog' && <AdminAuditLog />}
 
-      <div className="card">
-        <div className="section-kicker">Data</div>
-        <h3 className="section-title" style={{ fontSize: '1.1rem' }}>Back-up</h3>
-        <p style={{ color: 'var(--muted)', marginBottom: '14px' }}>
-          Download een kopie van de volledige database (alle offertes, voertuigen, opties en gebruikers).
-        </p>
-        <a className="btn btn-outline" href={api.backupUrl()}>Download back-up</a>
-      </div>
+      {isAdmin && (
+        <div className="card">
+          <div className="section-kicker">Data</div>
+          <h3 className="section-title" style={{ fontSize: '1.1rem' }}>Back-up</h3>
+          <p style={{ color: 'var(--muted)', marginBottom: '14px' }}>
+            Download een kopie van de volledige database (alle offertes, voertuigen, opties en gebruikers).
+          </p>
+          <a className="btn btn-outline" href={api.backupUrl()}>Download back-up</a>
+        </div>
+      )}
     </div>
   )
 }

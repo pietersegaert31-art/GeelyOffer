@@ -49,6 +49,33 @@ function addColumnIfMissing(database, table, column, definition) {
   });
 }
 
+// Runs on every boot (unlike the seedVehicles block above, which only fires once on a
+// totally empty table) so this new model reaches databases that were already seeded
+// before it existed — an admin can later fill in the real price/specs via the
+// existing "edit vehicle" screen once they're announced.
+function seedGeelyE2IfMissing(database) {
+  database.get('SELECT id FROM vehicles WHERE id = ?', ['geely-e2'], (err, row) => {
+    if (err) {
+      console.error('Error checking for Geely E2 seed row:', err);
+      return;
+    }
+    if (row) return;
+
+    database.run(
+      `INSERT INTO vehicles (id, name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, comingSoon)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      ['geely-e2', 'Geely E2', 'N.t.b.', 0, 'Nog niet bekend', 'Nog niet bekend', null, null, null, '{}', null],
+      (insertErr) => {
+        if (insertErr) {
+          console.error('Failed to seed Geely E2:', insertErr.message);
+          return;
+        }
+        console.log('✓ Added Geely E2 (Coming Soon)');
+      }
+    );
+  });
+}
+
 function seedAccessoriesIfEmpty(database) {
   database.get('SELECT COUNT(*) AS count FROM accessories', (err, row) => {
     if (err) {
@@ -121,6 +148,9 @@ export function initializeDatabase() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    addColumnIfMissing(database, 'users', 'mustChangePassword', 'BOOLEAN DEFAULT 0');
+    addColumnIfMissing(database, 'users', 'passwordResetTokenHash', 'TEXT');
+    addColumnIfMissing(database, 'users', 'passwordResetExpires', 'DATETIME');
 
     // Vehicles table
     database.run(`
@@ -140,6 +170,7 @@ export function initializeDatabase() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    addColumnIfMissing(database, 'vehicles', 'comingSoon', 'BOOLEAN DEFAULT 0');
 
     // Accessories / options table (paint, upholstery, comfort add-ons, ...)
     database.run(`
@@ -183,6 +214,18 @@ export function initializeDatabase() {
     // Migrations for columns added after the original release
     addColumnIfMissing(database, 'quotes', 'createdBy', 'TEXT');
     addColumnIfMissing(database, 'quotes', 'createdByName', 'TEXT');
+    // Campaign discounts: a quote's discount is either a percentage (existing
+    // discountPercentage column, unchanged) or a flat euro amount (discountEuro) —
+    // discountType says which one is in effect, defaulting existing rows to 'percentage'
+    // so nothing about already-stored quotes changes.
+    addColumnIfMissing(database, 'quotes', 'discountType', "TEXT DEFAULT 'percentage'");
+    addColumnIfMissing(database, 'quotes', 'discountEuro', 'REAL DEFAULT 0');
+    // Discount approval workflow: 'not_required' (no/small discount, or applied by a
+    // manager/admin who doesn't need sign-off), 'pending' (a rep's discount exceeds the
+    // threshold and needs a manager's sign-off before the quote can be sent/accepted),
+    // 'approved' or 'rejected' (a manager reviewed it). Existing quotes default to
+    // 'not_required' — this workflow only applies going forward.
+    addColumnIfMissing(database, 'quotes', 'discountApprovalStatus', "TEXT DEFAULT 'not_required'");
 
     // Quote Items (accessories/options) table
     database.run(`
@@ -207,6 +250,22 @@ export function initializeDatabase() {
         maxQuantity INTEGER,
         discountPercentage REAL NOT NULL,
         active BOOLEAN DEFAULT 1,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Audit trail: who changed a discount, price, or quote status, and when. Generic
+    // by design (entityType + entityId) so it can cover quotes, accessories, and
+    // vehicles without a separate table per entity.
+    database.run(`
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        entityType TEXT NOT NULL,
+        entityId TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT,
+        performedBy TEXT,
+        performedByName TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -361,6 +420,7 @@ export function initializeDatabase() {
       }
     });
 
+    seedGeelyE2IfMissing(database);
     seedAccessoriesIfEmpty(database);
     bootstrapAdminIfNoUsers(database);
 

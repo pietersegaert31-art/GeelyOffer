@@ -1,10 +1,10 @@
 import express from 'express';
 import fs from 'fs';
 import { getDatabasePath } from '../database/init.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, blockPendingPasswordChange } from '../middleware/auth.js';
 
 const router = express.Router();
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth, blockPendingPasswordChange, requireAdmin);
 
 // Download a raw copy of the SQLite database file — the simplest possible backup:
 // an admin can trigger this manually, or an external scheduler (cron, uptime monitor,

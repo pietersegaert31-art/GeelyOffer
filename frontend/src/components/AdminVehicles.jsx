@@ -2,14 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { api, formatPrice } from '../utils/api'
 
 const EMPTY_FORM = {
-  name: '', model: '', basePrice: '', fuel: '', transmission: '', power: '', torque: '', consumption: '', active: true,
+  name: '', model: '', basePrice: '', fuel: '', transmission: '', power: '', torque: '', consumption: '', active: true, comingSoon: false,
 }
 
 function VehicleFormModal({ vehicle, onClose, onSaved }) {
   const [form, setForm] = useState(vehicle ? {
     name: vehicle.name, model: vehicle.model, basePrice: vehicle.basePrice, fuel: vehicle.fuel,
     transmission: vehicle.transmission, power: vehicle.power || '', torque: vehicle.torque || '',
-    consumption: vehicle.consumption || '', active: !!vehicle.active,
+    consumption: vehicle.consumption || '', active: !!vehicle.active, comingSoon: !!vehicle.comingSoon,
   } : EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -24,13 +24,14 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
       const payload = {
         name: form.name,
         model: form.model,
-        basePrice: parseFloat(form.basePrice),
+        basePrice: form.basePrice ? parseFloat(form.basePrice) : (form.comingSoon ? 0 : undefined),
         fuel: form.fuel,
         transmission: form.transmission,
         power: form.power ? parseInt(form.power, 10) : null,
         torque: form.torque ? parseInt(form.torque, 10) : null,
         consumption: form.consumption ? parseFloat(form.consumption) : null,
         active: form.active,
+        comingSoon: form.comingSoon,
       }
       if (vehicle) {
         await api.updateVehicle(vehicle.id, payload)
@@ -66,8 +67,8 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Basisprijs (incl. BTW)</label>
-              <input type="number" min="0" step="1" value={form.basePrice} onChange={(e) => set('basePrice', e.target.value)} required />
+              <label>Basisprijs (incl. BTW){form.comingSoon && ' (optioneel)'}</label>
+              <input type="number" min="0" step="1" value={form.basePrice} onChange={(e) => set('basePrice', e.target.value)} required={!form.comingSoon} placeholder={form.comingSoon ? 'Nog niet bekend' : undefined} />
             </div>
             <div className="form-group">
               <label>Vermogen (pk)</label>
@@ -76,13 +77,19 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label>Brandstof</label>
-              <input value={form.fuel} onChange={(e) => set('fuel', e.target.value)} required placeholder="Elektrisch" />
+              <label>Brandstof{form.comingSoon && ' (optioneel)'}</label>
+              <input value={form.fuel} onChange={(e) => set('fuel', e.target.value)} required={!form.comingSoon} placeholder="Elektrisch" />
             </div>
             <div className="form-group">
-              <label>Transmissie</label>
-              <input value={form.transmission} onChange={(e) => set('transmission', e.target.value)} required placeholder="Automatisch" />
+              <label>Transmissie{form.comingSoon && ' (optioneel)'}</label>
+              <input value={form.transmission} onChange={(e) => set('transmission', e.target.value)} required={!form.comingSoon} placeholder="Automatisch" />
             </div>
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
+              <input type="checkbox" checked={form.comingSoon} onChange={(e) => set('comingSoon', e.target.checked)} style={{ width: '16px', height: '16px' }} />
+              Coming soon (nog geen prijs/opties — niet selecteerbaar bij nieuwe offertes)
+            </label>
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
@@ -158,9 +165,12 @@ function AdminVehicles() {
                 <tr key={v.id}>
                   <td style={{ fontWeight: 700 }}>{v.name}</td>
                   <td>{v.model}</td>
-                  <td>{formatPrice(v.basePrice)}</td>
+                  <td>{v.comingSoon ? '—' : formatPrice(v.basePrice)}</td>
                   <td>{v.power ? `${v.power} pk` : '—'}</td>
-                  <td><span className={`badge ${v.active ? 'sent' : 'draft'}`}>{v.active ? 'Actief' : 'Inactief'}</span></td>
+                  <td>
+                    <span className={`badge ${v.active ? 'sent' : 'draft'}`}>{v.active ? 'Actief' : 'Inactief'}</span>
+                    {v.comingSoon && <span className="badge declined" style={{ marginLeft: '6px' }}>Coming soon</span>}
+                  </td>
                   <td>
                     <button className="btn btn-outline" style={{ padding: '7px 12px', fontSize: '0.8rem' }} onClick={() => setEditing(v)}>
                       Bewerken

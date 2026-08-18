@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
+import { ROLES, ROLE_LABELS } from '../utils/constants'
 
 function UserFormModal({ onClose, onSaved }) {
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'sales' })
@@ -47,8 +48,9 @@ function UserFormModal({ onClose, onSaved }) {
           <div className="form-group">
             <label>Rol</label>
             <select value={form.role} onChange={(e) => set('role', e.target.value)}>
-              <option value="sales">Verkoper</option>
-              <option value="admin">Beheerder</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+              ))}
             </select>
           </div>
           <div className="btn-group">
@@ -91,9 +93,10 @@ function AdminUsers() {
     }
   }
 
-  const handleToggleRole = async (u) => {
+  const handleRoleChange = async (u, role) => {
+    if (role === u.role) return
     try {
-      await api.updateUser(u.id, { role: u.role === 'admin' ? 'sales' : 'admin' })
+      await api.updateUser(u.id, { role })
       load()
     } catch (err) {
       alert(err.message)
@@ -139,9 +142,15 @@ function AdminUsers() {
                   <td style={{ fontWeight: 700 }}>{u.name}{u.id === currentUser.id && <span style={{ color: 'var(--muted-soft)', fontWeight: 400 }}> (jij)</span>}</td>
                   <td>{u.email}</td>
                   <td>
-                    <button className="btn btn-outline" style={{ padding: '5px 10px', fontSize: '0.76rem' }} onClick={() => handleToggleRole(u)}>
-                      {u.role === 'admin' ? 'Beheerder' : 'Verkoper'}
-                    </button>
+                    <select
+                      value={u.role}
+                      onChange={(e) => handleRoleChange(u, e.target.value)}
+                      style={{ padding: '5px 8px', fontSize: '0.76rem' }}
+                    >
+                      {ROLES.map((r) => (
+                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <button
@@ -151,6 +160,11 @@ function AdminUsers() {
                     >
                       {u.active ? 'Actief' : 'Inactief'}
                     </button>
+                    {u.mustChangePassword && (
+                      <span className="badge declined" style={{ marginLeft: '6px' }} title="Deze collega moet nog inloggen met het tijdelijke wachtwoord en het wijzigen">
+                        Tijdelijk wachtwoord
+                      </span>
+                    )}
                   </td>
                   <td>
                     <button

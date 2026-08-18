@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { getAsync, allAsync } from '../database/init.js';
 import { formatPrice } from '../utils/pricing.js';
 import { getStandardEquipment } from '../data/standardEquipment.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, '../assets/geely-logo.png');
@@ -369,7 +369,7 @@ export function generateQuotePdfBuffer({ quote, vehicle, items }) {
 }
 
 // Generate PDF quote
-router.get('/:quoteId', requireAuth, async (req, res) => {
+router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res) => {
   try {
     const { quote, vehicle, items } = await loadQuoteForPdf(req.params.quoteId);
 

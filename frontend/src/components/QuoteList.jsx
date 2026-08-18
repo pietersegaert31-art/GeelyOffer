@@ -1,11 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { formatPrice, formatDate, api } from '../utils/api'
-import { STATUS_LABELS, QUOTE_STATUSES } from '../utils/constants'
+import { STATUS_LABELS, QUOTE_STATUSES, DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS } from '../utils/constants'
+import { useAuth } from '../context/AuthContext'
 import QuoteEditor from './QuoteEditor'
 
 const LIMIT = 20
+const EXPIRY_WARNING_DAYS = 7
+const OPEN_STATUSES = ['draft', 'sent']
+
+function expiryInfo(quote) {
+  if (!OPEN_STATUSES.includes(quote.status) || !quote.expiresAt) return null
+  const diffDays = Math.ceil((new Date(quote.expiresAt) - new Date()) / (24 * 60 * 60 * 1000))
+  if (diffDays < 0) return { label: 'Verlopen', tone: 'expired' }
+  if (diffDays <= EXPIRY_WARNING_DAYS) return { label: diffDays === 0 ? 'Verloopt vandaag' : `Verloopt over ${diffDays}d`, tone: 'soon' }
+  return { label: formatDate(quote.expiresAt), tone: 'normal' }
+}
 
 function QuoteList() {
+  const { user } = useAuth()
+  const canManageDiscounts = user.role === 'admin' || user.role === 'sales_manager'
   const [quotes, setQuotes] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -13,6 +26,7 @@ function QuoteList() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [expiringSoon, setExpiringSoon] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
@@ -23,7 +37,7 @@ function QuoteList() {
     try {
       setLoading(true)
       setError('')
-      const data = await api.getQuotes({ search, status, page, limit: LIMIT })
+      const data = await api.getQuotes({ search, status, expiringSoon, page, limit: LIMIT })
       setQuotes(data.quotes)
       setTotal(data.total)
       setTotalPages(data.totalPages)
@@ -35,7 +49,7 @@ function QuoteList() {
     }
   }
 
-  useEffect(() => { load() }, [page, status, search]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [page, status, search, expiringSoon]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce the free-text search so we don't fire a request per keystroke
   useEffect(() => {
@@ -76,6 +90,16 @@ function QuoteList() {
 
   const handleSendEmail = (quoteId) => withBusy(quoteId, async () => {
     await api.sendQuoteEmail(quoteId)
+    await load()
+  })
+
+  const handleApproveDiscount = (quoteId) => withBusy(quoteId, async () => {
+    await api.approveDiscount(quoteId)
+    await load()
+  })
+
+  const handleRejectDiscount = (quoteId) => withBusy(quoteId, async () => {
+    await api.rejectDiscount(quoteId)
     await load()
   })
 
@@ -138,12 +162,31 @@ function QuoteList() {
             onChange={(e) => setSearchInput(e.target.value)}
             style={{ maxWidth: '320px' }}
           />
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }} style={{ maxWidth: '200px' }}>
+          <select
+            value={status}
+            onChange={(e) => { setStatus(e.target.value); setPage(1) }}
+            style={{ maxWidth: '200px' }}
+            disabled={expiringSoon}
+            title={expiringSoon ? 'Niet beschikbaar terwijl "Verloopt binnenkort" actief is' : undefined}
+          >
             <option value="">Alle statussen</option>
             {QUOTE_STATUSES.map((s) => (
               <option key={s} value={s}>{STATUS_LABELS[s]}</option>
             ))}
           </select>
+          <button
+            type="button"
+            className={`nav-pill ${expiringSoon ? 'active' : ''}`}
+            onClick={() => {
+              // Expiring-soon only ever matches draft/sent quotes, so an explicit status
+              // filter for e.g. "accepted" would silently AND together into zero results.
+              setExpiringSoon((prev) => !prev)
+              setStatus('')
+              setPage(1)
+            }}
+          >
+            Verloopt binnenkort
+          </button>
         </div>
 
         {error && <div className="error">{error}</div>}
@@ -164,6 +207,7 @@ function QuoteList() {
                   <th>Status</th>
                   <th>Verkoper</th>
                   <th>Datum</th>
+                  <th>Vervalt</th>
                   <th>Acties</th>
                 </tr>
               </thead>
@@ -188,9 +232,24 @@ function QuoteList() {
                     <td style={{ fontWeight: 800, color: '#122d4f' }}>{formatPrice(quote.totalPrice)}</td>
                     <td>
                       <span className={`badge ${quote.status}`}>{STATUS_LABELS[quote.status] || quote.status}</span>
+                      {DISCOUNT_APPROVAL_STATUS_LABELS[quote.discountApprovalStatus] && (
+                        <div style={{ marginTop: '5px' }}>
+                          <span className={`badge ${DISCOUNT_APPROVAL_BADGE_CLASS[quote.discountApprovalStatus]}`}>
+                            {DISCOUNT_APPROVAL_STATUS_LABELS[quote.discountApprovalStatus]}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td style={{ fontSize: '0.85rem', color: '#697687' }}>{quote.createdByName || '—'}</td>
                     <td>{formatDate(quote.createdAt)}</td>
+                    <td>
+                      {(() => {
+                        const info = expiryInfo(quote)
+                        if (!info) return <span style={{ color: 'var(--muted-soft)' }}>—</span>
+                        if (info.tone === 'normal') return <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{info.label}</span>
+                        return <span className={`badge ${info.tone === 'expired' ? 'declined' : 'expiry-soon'}`}>{info.label}</span>
+                      })()}
+                    </td>
                     <td>
                       <div className="row-actions">
                         <button className="btn btn-primary" onClick={() => handleDownloadPDF(quote.id)} disabled={busyIds.includes(quote.id)}>
@@ -206,6 +265,18 @@ function QuoteList() {
                           <button className="btn btn-outline" onClick={() => handleSendEmail(quote.id)} disabled={busyIds.includes(quote.id)}>
                             Mail
                           </button>
+                        )}
+                        {canManageDiscounts && ['pending', 'rejected'].includes(quote.discountApprovalStatus) && (
+                          <>
+                            <button className="btn btn-success" onClick={() => handleApproveDiscount(quote.id)} disabled={busyIds.includes(quote.id)}>
+                              Korting goedkeuren
+                            </button>
+                            {quote.discountApprovalStatus !== 'rejected' && (
+                              <button className="btn btn-danger" onClick={() => handleRejectDiscount(quote.id)} disabled={busyIds.includes(quote.id)}>
+                                Weigeren
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>

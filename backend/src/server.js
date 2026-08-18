@@ -14,6 +14,8 @@ import pdfRouter from './routes/pdf.js';
 import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
 import adminRouter from './routes/admin.js';
+import reportsRouter from './routes/reports.js';
+import auditLogRouter from './routes/auditLog.js';
 
 dotenv.config();
 
@@ -52,6 +54,8 @@ app.use('/api/accessories', accessoriesRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/pdf', pdfRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/audit-log', auditLogRouter);
 
 // Health check
 app.get('/health', (req, res) => {

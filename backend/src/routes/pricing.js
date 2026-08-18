@@ -1,25 +1,25 @@
 import express from 'express';
 import { calculatePricing, getDiscountTier, validatePricingInputs } from '../utils/pricing.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
 
 const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, blockPendingPasswordChange);
 
 // Calculate pricing
 router.post('/calculate', (req, res) => {
   try {
-    const { basePrice, accessoriesPrice = 0, discountPercentage = 0 } = req.body;
+    const { basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0 } = req.body;
 
     if (!basePrice) {
       return res.status(400).json({ error: 'Base price is required' });
     }
 
-    const validationError = validatePricingInputs(basePrice, accessoriesPrice, discountPercentage);
+    const validationError = validatePricingInputs(basePrice, accessoriesPrice, discountType, discountValue);
     if (validationError) {
       return res.status(400).json({ error: validationError });
     }
 
-    const pricing = calculatePricing(basePrice, accessoriesPrice, discountPercentage);
+    const pricing = calculatePricing(basePrice, accessoriesPrice, discountType, discountValue);
     res.json(pricing);
   } catch (error) {
     res.status(500).json({ error: error.message });

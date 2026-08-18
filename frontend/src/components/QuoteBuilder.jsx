@@ -1,19 +1,33 @@
 import React, { useState, useEffect } from 'react'
 import { api, formatPrice } from '../utils/api'
+import {
+  DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
+} from '../utils/constants'
+import { useAuth } from '../context/AuthContext'
 import VehicleSelector from './VehicleSelector'
 import VariantSelector from './VariantSelector'
 import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 import CustomerForm from './CustomerForm'
 
+function needsApprovalWarning(discountType, discountValue, role) {
+  if (['admin', 'sales_manager'].includes(role)) return false
+  return discountType === 'fixed'
+    ? discountValue > DISCOUNT_APPROVAL_THRESHOLD_FIXED
+    : discountValue > DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE
+}
+
 function QuoteBuilder({ onQuoteCreated }) {
+  const { user } = useAuth()
   const [step, setStep] = useState(1)
   const [vehicles, setVehicles] = useState([])
   const [accessories, setAccessories] = useState([])
   const [selectedModel, setSelectedModel] = useState(null)
   const [selectedVariant, setSelectedVariant] = useState(null)
   const [selectedAccessories, setSelectedAccessories] = useState([])
-  const [discountPercentage, setDiscountPercentage] = useState(0)
+  const [discountType, setDiscountType] = useState('percentage')
+  const [discountValue, setDiscountValue] = useState(0)
   const [quantity, setQuantity] = useState(1)
   const [pricing, setPricing] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -34,7 +48,7 @@ function QuoteBuilder({ onQuoteCreated }) {
     if (selectedVariant) {
       calculatePricing()
     }
-  }, [selectedVariant, selectedAccessories, discountPercentage])
+  }, [selectedVariant, selectedAccessories, discountType, discountValue])
 
   const loadData = async () => {
     try {
@@ -60,7 +74,8 @@ function QuoteBuilder({ onQuoteCreated }) {
       const pricingData = await api.calculatePricing(
         selectedVariant.basePrice,
         accessoriesTotal,
-        discountPercentage
+        discountType,
+        discountValue
       )
       setPricing(pricingData)
     } catch (err) {
@@ -78,7 +93,8 @@ function QuoteBuilder({ onQuoteCreated }) {
   const applyVolumeDiscount = async () => {
     try {
       const tier = await api.getDiscountTier(quantity)
-      setDiscountPercentage(tier.discountPercentage)
+      setDiscountType('percentage')
+      setDiscountValue(tier.discountPercentage)
     } catch (err) {
       setError('Failed to fetch volume discount: ' + err.message)
     }
@@ -101,7 +117,8 @@ function QuoteBuilder({ onQuoteCreated }) {
           vehicleModel: selectedVariant.model,
         },
         accessories: selectedAccessories,
-        discountPercentage
+        discountType,
+        discountValue
       }
 
       await api.createQuote(quoteData)
@@ -151,7 +168,8 @@ function QuoteBuilder({ onQuoteCreated }) {
                     setSelectedModel(model)
                     setSelectedVariant(null)
                     setSelectedAccessories([])
-                    setDiscountPercentage(0)
+                    setDiscountType('percentage')
+                    setDiscountValue(0)
                     setQuantity(1)
                     setPricing(null)
                   }}
@@ -244,17 +262,35 @@ function QuoteBuilder({ onQuoteCreated }) {
                     />
                   </div>
                   <div className="form-group" style={{ maxWidth: '220px' }}>
-                    <label>Korting (%)</label>
+                    <label>Type korting</label>
+                    <select value={discountType} onChange={(e) => { setDiscountType(e.target.value); setDiscountValue(0) }}>
+                      {DISCOUNT_TYPES.map((t) => (
+                        <option key={t} value={t}>{DISCOUNT_TYPE_LABELS[t]}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row" style={{ marginTop: '16px' }}>
+                  <div className="form-group" style={{ maxWidth: '220px' }}>
+                    <label>{discountType === 'fixed' ? 'Korting (€)' : 'Korting (%)'}</label>
                     <input
                       type="number"
                       min="0"
-                      max="100"
-                      step="0.5"
-                      value={discountPercentage}
-                      onChange={(e) => setDiscountPercentage(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                      max={discountType === 'percentage' ? 100 : undefined}
+                      step={discountType === 'percentage' ? 0.5 : 1}
+                      value={discountValue}
+                      onChange={(e) => {
+                        const raw = parseFloat(e.target.value) || 0
+                        setDiscountValue(discountType === 'percentage' ? Math.min(100, Math.max(0, raw)) : Math.max(0, raw))
+                      }}
                     />
                   </div>
                 </div>
+                {needsApprovalWarning(discountType, discountValue, user.role) && (
+                  <p style={{ color: 'var(--warning)', fontSize: '0.85rem', fontWeight: 600, marginTop: '4px' }}>
+                    ⚠ Deze korting is groter dan gebruikelijk en vereist goedkeuring van een sales manager voordat de offerte verzonden of geaccepteerd kan worden.
+                  </p>
+                )}
                 <div className="btn-group">
                   <button
                     className="btn btn-outline"
@@ -358,10 +394,10 @@ function QuoteBuilder({ onQuoteCreated }) {
                   <strong>{formatPrice(selectedAccessories.reduce((sum, acc) => sum + acc.price, 0))}</strong>
                 </div>
               )}
-              {discountPercentage > 0 && (
+              {discountValue > 0 && (
                 <div className="summary-row">
                   <span>Korting</span>
-                  <strong>{discountPercentage}%</strong>
+                  <strong>{discountType === 'fixed' ? formatPrice(discountValue) : `${discountValue}%`}</strong>
                 </div>
               )}
               <div className="summary-total">

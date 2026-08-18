@@ -36,6 +36,12 @@ export const api = {
   async changePassword(currentPassword, newPassword) {
     return request('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) })
   },
+  async forgotPassword(email) {
+    return request('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) })
+  },
+  async resetPassword(token, newPassword) {
+    return request('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) })
+  },
 
   // Users (admin)
   async getUsers() {
@@ -83,10 +89,11 @@ export const api = {
   async createQuote(quoteData) {
     return request('/quotes', { method: 'POST', body: JSON.stringify(quoteData) })
   },
-  async getQuotes({ search = '', status = '', page = 1, limit = 25 } = {}) {
+  async getQuotes({ search = '', status = '', expiringSoon = false, page = 1, limit = 25 } = {}) {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) params.set('search', search)
     if (status) params.set('status', status)
+    if (expiringSoon) params.set('expiringSoon', 'true')
     return request(`/quotes?${params.toString()}`)
   },
   async getQuote(id) {
@@ -104,15 +111,21 @@ export const api = {
   async sendQuoteEmail(id) {
     return request(`/quotes/${id}/send-email`, { method: 'POST' })
   },
+  async approveDiscount(id) {
+    return request(`/quotes/${id}/approve-discount`, { method: 'POST' })
+  },
+  async rejectDiscount(id) {
+    return request(`/quotes/${id}/reject-discount`, { method: 'POST' })
+  },
   quotesCsvUrl() {
     return `${API_BASE_URL}/quotes/export.csv`
   },
 
   // Pricing
-  async calculatePricing(basePrice, accessoriesPrice, discountPercentage) {
+  async calculatePricing(basePrice, accessoriesPrice, discountType, discountValue) {
     return request('/pricing/calculate', {
       method: 'POST',
-      body: JSON.stringify({ basePrice, accessoriesPrice, discountPercentage }),
+      body: JSON.stringify({ basePrice, accessoriesPrice, discountType, discountValue }),
     })
   },
   async getDiscountTier(quantity) {
@@ -129,6 +142,23 @@ export const api = {
   // Admin
   backupUrl() {
     return `${API_BASE_URL}/admin/backup`
+  },
+
+  // Reports
+  async getReportsSummary({ from = '', to = '' } = {}) {
+    const params = new URLSearchParams()
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    const qs = params.toString()
+    return request(`/reports/summary${qs ? `?${qs}` : ''}`)
+  },
+
+  // Audit log
+  async getAuditLog({ entityType = '', entityId = '', page = 1, limit = 50 } = {}) {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (entityType) params.set('entityType', entityType)
+    if (entityId) params.set('entityId', entityId)
+    return request(`/audit-log?${params.toString()}`)
   },
 }
 

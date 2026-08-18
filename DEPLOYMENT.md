@@ -44,6 +44,7 @@ Under **Environment**, add:
 | Key | Value | Notes |
 |---|---|---|
 | `NODE_ENV` | `production` | Enables secure cookies and static frontend serving |
+| `NPM_CONFIG_PRODUCTION` | `false` | Without this, Render's build step inherits `NODE_ENV=production` and `npm install` skips `devDependencies` — which includes `vite`, so the frontend build fails with `vite: not found`. This forces devDependencies to install at build time while `NODE_ENV` still stays `production` at runtime. |
 | `DATABASE_PATH` | `/var/data/quotation.db` | Must point inside the disk you mounted in step 3 |
 | `JWT_SECRET` | *(long random string)* | Generate one locally: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`. The server refuses to start in production without this. |
 | `ADMIN_EMAIL` | e.g. `admin@unicars.be` | Bootstrap admin account, created automatically on first boot |

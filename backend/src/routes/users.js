@@ -2,14 +2,11 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, blockPendingPasswordChange } from '../middleware/auth.js';
+import { toPublicUser } from '../utils/publicUser.js';
 
 const router = express.Router();
-router.use(requireAuth, requireAdmin);
-
-function toPublicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, role: user.role, active: !!user.active, createdAt: user.createdAt };
-}
+router.use(requireAuth, blockPendingPasswordChange, requireAdmin);
 
 // List colleagues
 router.get('/', async (req, res) => {
@@ -31,8 +28,8 @@ router.post('/', async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({ error: 'Wachtwoord moet minstens 8 tekens bevatten' });
     }
-    if (!['admin', 'sales'].includes(role)) {
-      return res.status(400).json({ error: 'Rol moet admin of sales zijn' });
+    if (!['admin', 'sales_manager', 'sales'].includes(role)) {
+      return res.status(400).json({ error: 'Rol moet admin, sales_manager of sales zijn' });
     }
 
     const existing = await getAsync('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
@@ -43,7 +40,7 @@ router.post('/', async (req, res) => {
     const id = uuidv4();
     const passwordHash = bcrypt.hashSync(password, 12);
     await runAsync(
-      'INSERT INTO users (id, name, email, passwordHash, role) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO users (id, name, email, passwordHash, role, mustChangePassword) VALUES (?, ?, ?, ?, ?, 1)',
       [id, name, email.toLowerCase(), passwordHash, role]
     );
 
@@ -62,8 +59,8 @@ router.put('/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Gebruiker niet gevonden' });
     }
-    if (role && !['admin', 'sales'].includes(role)) {
-      return res.status(400).json({ error: 'Rol moet admin of sales zijn' });
+    if (role && !['admin', 'sales_manager', 'sales'].includes(role)) {
+      return res.status(400).json({ error: 'Rol moet admin, sales_manager of sales zijn' });
     }
 
     // Don't allow deactivating/demoting the last active admin
@@ -74,18 +71,21 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    const passwordHash = password ? bcrypt.hashSync(password, 12) : user.passwordHash;
     if (password && password.length < 8) {
       return res.status(400).json({ error: 'Wachtwoord moet minstens 8 tekens bevatten' });
     }
+    const passwordHash = password ? bcrypt.hashSync(password, 12) : user.passwordHash;
 
     await runAsync(
-      'UPDATE users SET name = ?, role = ?, active = ?, passwordHash = ? WHERE id = ?',
+      'UPDATE users SET name = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ? WHERE id = ?',
       [
         name ?? user.name,
         role ?? user.role,
         active === undefined ? user.active : (active ? 1 : 0),
         passwordHash,
+        // An admin setting a new password is a fresh temp password — force the
+        // colleague to pick their own on next login, same as a brand-new account.
+        password ? 1 : user.mustChangePassword,
         req.params.id,
       ]
     );

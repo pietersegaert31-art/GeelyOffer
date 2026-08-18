@@ -13,12 +13,12 @@ function getSecret() {
   return secret;
 }
 
+// The token only needs to prove *who* the caller is — requireAuth re-reads
+// role/active/mustChangePassword from the database on every request rather than
+// trusting a value baked in here, so those changes take effect immediately instead
+// of waiting for the token to expire.
 export function signToken(user) {
-  return jwt.sign(
-    { sub: user.id, name: user.name, email: user.email, role: user.role },
-    getSecret(),
-    { expiresIn: TOKEN_TTL }
-  );
+  return jwt.sign({ sub: user.id }, getSecret(), { expiresIn: TOKEN_TTL });
 }
 
 export function verifyToken(token) {

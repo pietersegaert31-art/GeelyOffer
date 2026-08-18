@@ -29,7 +29,15 @@ function Header({ currentPage, onPageChange }) {
           >
             Offertes overzicht
           </button>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'sales_manager') && (
+            <button
+              className={`nav-pill ${currentPage === 'reports' ? 'active' : ''}`}
+              onClick={() => onPageChange('reports')}
+            >
+              Rapporten
+            </button>
+          )}
+          {(user?.role === 'admin' || user?.role === 'sales_manager') && (
             <button
               className={`nav-pill ${currentPage === 'admin' ? 'active' : ''}`}
               onClick={() => onPageChange('admin')}

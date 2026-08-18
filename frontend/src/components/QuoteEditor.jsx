@@ -1,11 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../utils/api'
-import { QUOTE_STATUSES, STATUS_LABELS } from '../utils/constants'
+import {
+  QUOTE_STATUSES, STATUS_LABELS, DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
+  DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
+  DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS,
+} from '../utils/constants'
+import { useAuth } from '../context/AuthContext'
 import CustomerForm from './CustomerForm'
 import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 
+function needsApprovalWarning(discountType, discountValue, role) {
+  if (['admin', 'sales_manager'].includes(role)) return false
+  return discountType === 'fixed'
+    ? discountValue > DISCOUNT_APPROVAL_THRESHOLD_FIXED
+    : discountValue > DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE
+}
+
 function QuoteEditor({ quoteId, onClose, onSaved }) {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -13,7 +26,9 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   const [vehicle, setVehicle] = useState(null)
   const [accessoriesCatalog, setAccessoriesCatalog] = useState([])
   const [selectedAccessories, setSelectedAccessories] = useState([])
-  const [discountPercentage, setDiscountPercentage] = useState(0)
+  const [discountType, setDiscountType] = useState('percentage')
+  const [discountValue, setDiscountValue] = useState(0)
+  const [discountApprovalStatus, setDiscountApprovalStatus] = useState('not_required')
   const [status, setStatus] = useState('draft')
   const [customerInfo, setCustomerInfo] = useState({
     customerName: '', customerEmail: '', customerPhone: '', customerCompany: '', notes: '',
@@ -36,7 +51,9 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
         setSelectedAccessories(
           catalog.filter((acc) => quote.items?.some((item) => item.itemName === acc.name))
         )
-        setDiscountPercentage(quote.discountPercentage || 0)
+        setDiscountType(quote.discountType || 'percentage')
+        setDiscountValue((quote.discountType === 'fixed' ? quote.discountEuro : quote.discountPercentage) || 0)
+        setDiscountApprovalStatus(quote.discountApprovalStatus || 'not_required')
         setStatus(quote.status || 'draft')
         setCustomerInfo({
           customerName: quote.customerName || '',
@@ -58,10 +75,10 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   useEffect(() => {
     if (!vehicle) return
     const accessoriesTotal = selectedAccessories.reduce((sum, acc) => sum + acc.price, 0)
-    api.calculatePricing(vehicle.basePrice, accessoriesTotal, discountPercentage)
+    api.calculatePricing(vehicle.basePrice, accessoriesTotal, discountType, discountValue)
       .then(setPricing)
       .catch((err) => setError('Kon prijs niet berekenen: ' + err.message))
-  }, [vehicle, selectedAccessories, discountPercentage])
+  }, [vehicle, selectedAccessories, discountType, discountValue])
 
   const handleSave = async () => {
     if (!customerInfo.customerName) {
@@ -73,7 +90,8 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
       setError('')
       await api.updateQuote(quoteId, {
         ...customerInfo,
-        discountPercentage,
+        discountType,
+        discountValue,
         accessories: selectedAccessories,
         status,
       })
@@ -124,17 +142,48 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
 
               <div className="form-row" style={{ marginTop: '20px' }}>
                 <div className="form-group">
-                  <label htmlFor="editor-discount">Korting (%)</label>
+                  <label htmlFor="editor-discount-type">Type korting</label>
+                  <select
+                    id="editor-discount-type"
+                    value={discountType}
+                    onChange={(e) => { setDiscountType(e.target.value); setDiscountValue(0) }}
+                  >
+                    {DISCOUNT_TYPES.map((t) => (
+                      <option key={t} value={t}>{DISCOUNT_TYPE_LABELS[t]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label htmlFor="editor-discount">{discountType === 'fixed' ? 'Korting (€)' : 'Korting (%)'}</label>
                   <input
                     id="editor-discount"
                     type="number"
                     min="0"
-                    max="100"
-                    step="0.5"
-                    value={discountPercentage}
-                    onChange={(e) => setDiscountPercentage(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                    max={discountType === 'percentage' ? 100 : undefined}
+                    step={discountType === 'percentage' ? 0.5 : 1}
+                    value={discountValue}
+                    onChange={(e) => {
+                      const raw = parseFloat(e.target.value) || 0
+                      setDiscountValue(discountType === 'percentage' ? Math.min(100, Math.max(0, raw)) : Math.max(0, raw))
+                    }}
                   />
                 </div>
+              </div>
+
+              {DISCOUNT_APPROVAL_STATUS_LABELS[discountApprovalStatus] && (
+                <div style={{ marginTop: '10px' }}>
+                  <span className={`badge ${DISCOUNT_APPROVAL_BADGE_CLASS[discountApprovalStatus]}`}>
+                    {DISCOUNT_APPROVAL_STATUS_LABELS[discountApprovalStatus]}
+                  </span>
+                </div>
+              )}
+              {needsApprovalWarning(discountType, discountValue, user.role) && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.85rem', fontWeight: 600, marginTop: '10px' }}>
+                  ⚠ Deze korting is groter dan gebruikelijk en vereist goedkeuring van een sales manager voordat de offerte verzonden of geaccepteerd kan worden.
+                </p>
+              )}
+
+              <div className="form-row" style={{ marginTop: '16px' }}>
                 <div className="form-group">
                   <label htmlFor="editor-status">Status</label>
                   <select id="editor-status" value={status} onChange={(e) => setStatus(e.target.value)}>

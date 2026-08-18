@@ -1,10 +1,11 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireManager, blockPendingPasswordChange } from '../middleware/auth.js';
+import { logAudit } from '../utils/auditLog.js';
 
 const router = express.Router();
-router.use(requireAuth);
+router.use(requireAuth, blockPendingPasswordChange);
 
 function toPublicAccessory(row) {
   return {
@@ -20,7 +21,7 @@ function toPublicAccessory(row) {
 // List all active accessories (used by the quote builder)
 router.get('/', async (req, res) => {
   try {
-    const includeInactive = req.query.all === 'true' && req.user.role === 'admin';
+    const includeInactive = req.query.all === 'true' && ['admin', 'sales_manager'].includes(req.user.role);
     const rows = await allAsync(
       includeInactive
         ? 'SELECT * FROM accessories ORDER BY category ASC, name ASC'
@@ -32,8 +33,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create a new accessory (admin)
-router.post('/', requireAdmin, async (req, res) => {
+// Create a new accessory (admin or sales manager)
+router.post('/', requireManager, async (req, res) => {
   try {
     const { name, price, category, vehicleModels = [] } = req.body;
     if (!name || !category || !Number.isFinite(price) || price < 0) {
@@ -47,14 +48,21 @@ router.post('/', requireAdmin, async (req, res) => {
     );
 
     const row = await getAsync('SELECT * FROM accessories WHERE id = ?', [id]);
+    await logAudit({
+      entityType: 'accessory',
+      entityId: id,
+      action: 'created',
+      details: { name, price },
+      user: req.user,
+    });
     res.status(201).json(toPublicAccessory(row));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Update an accessory (admin) — price, name, category, applicable models, active flag
-router.put('/:id', requireAdmin, async (req, res) => {
+// Update an accessory (admin or sales manager) — price, name, category, applicable models, active flag
+router.put('/:id', requireManager, async (req, res) => {
   try {
     const existing = await getAsync('SELECT * FROM accessories WHERE id = ?', [req.params.id]);
     if (!existing) {
@@ -78,6 +86,16 @@ router.put('/:id', requireAdmin, async (req, res) => {
       ]
     );
 
+    if (price !== undefined && price !== existing.price) {
+      await logAudit({
+        entityType: 'accessory',
+        entityId: req.params.id,
+        action: 'price_changed',
+        details: { name: existing.name, from: existing.price, to: price },
+        user: req.user,
+      });
+    }
+
     const updated = await getAsync('SELECT * FROM accessories WHERE id = ?', [req.params.id]);
     res.json(toPublicAccessory(updated));
   } catch (error) {
@@ -85,9 +103,10 @@ router.put('/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Permanently remove an accessory (admin) — prefer deactivating via PUT for options
-// that have already been used on quotes, since this doesn't touch quote history.
-router.delete('/:id', requireAdmin, async (req, res) => {
+// Permanently remove an accessory (admin or sales manager) — prefer deactivating via
+// PUT for options that have already been used on quotes, since this doesn't touch
+// quote history.
+router.delete('/:id', requireManager, async (req, res) => {
   try {
     const existing = await getAsync('SELECT id FROM accessories WHERE id = ?', [req.params.id]);
     if (!existing) {

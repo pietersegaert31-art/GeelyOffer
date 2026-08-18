@@ -3,14 +3,22 @@ import Header from './components/Header'
 import QuoteBuilder from './components/QuoteBuilder'
 import QuoteList from './components/QuoteList'
 import LoginPage from './components/LoginPage'
+import ResetPasswordPage from './components/ResetPasswordPage'
 import AdminPage from './components/AdminPage'
+import ReportsPage from './components/ReportsPage'
+import ChangePasswordModal from './components/ChangePasswordModal'
 import { useAuth } from './context/AuthContext'
 import './App.css'
 
 function App() {
-  const { user, loading } = useAuth()
-  const [currentPage, setCurrentPage] = useState('builder') // 'builder' | 'quotes' | 'admin'
+  const { user, loading, setUser } = useAuth()
+  const [currentPage, setCurrentPage] = useState('builder') // 'builder' | 'quotes' | 'reports' | 'admin'
   const [quotesRefreshKey, setQuotesRefreshKey] = useState(0)
+
+  const resetToken = new URLSearchParams(window.location.search).get('resetToken')
+  if (resetToken) {
+    return <ResetPasswordPage token={resetToken} />
+  }
 
   if (loading) {
     return (
@@ -24,12 +32,20 @@ function App() {
     return <LoginPage />
   }
 
+  if (user.mustChangePassword) {
+    return <ChangePasswordModal forced onSuccess={(updatedUser) => setUser(updatedUser)} />
+  }
+
   const handleQuoteCreated = () => {
     setQuotesRefreshKey((key) => key + 1)
     setCurrentPage('quotes')
   }
 
-  const page = currentPage === 'admin' && user.role !== 'admin' ? 'builder' : currentPage
+  const canSeeReports = user.role === 'admin' || user.role === 'sales_manager'
+  const canSeeAdmin = user.role === 'admin' || user.role === 'sales_manager'
+  let page = currentPage
+  if (page === 'admin' && !canSeeAdmin) page = 'builder'
+  if (page === 'reports' && !canSeeReports) page = 'builder'
 
   return (
     <div className="app">
@@ -41,7 +57,10 @@ function App() {
         {page === 'quotes' && (
           <QuoteList key={quotesRefreshKey} />
         )}
-        {page === 'admin' && user.role === 'admin' && (
+        {page === 'reports' && canSeeReports && (
+          <ReportsPage />
+        )}
+        {page === 'admin' && canSeeAdmin && (
           <AdminPage />
         )}
       </main>

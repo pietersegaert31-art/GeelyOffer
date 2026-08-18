@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { api } from '../utils/api'
 
-function ChangePasswordModal({ onClose }) {
+function ChangePasswordModal({ onClose, forced = false, onSuccess }) {
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -18,8 +18,12 @@ function ChangePasswordModal({ onClose }) {
     }
     try {
       setSaving(true)
-      await api.changePassword(currentPassword, newPassword)
-      setSuccess(true)
+      const { user } = await api.changePassword(currentPassword, newPassword)
+      if (forced) {
+        onSuccess(user)
+      } else {
+        setSuccess(true)
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -27,13 +31,23 @@ function ChangePasswordModal({ onClose }) {
     }
   }
 
+  const handleOverlayClick = () => {
+    if (!forced) onClose()
+  }
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleOverlayClick}>
       <div className="modal-card" style={{ maxWidth: '420px' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="section-title" style={{ marginBottom: 0 }}>Wachtwoord wijzigen</h2>
-          <button className="btn btn-outline" onClick={onClose}>Sluiten</button>
+          {!forced && <button className="btn btn-outline" onClick={onClose}>Sluiten</button>}
         </div>
+
+        {forced && (
+          <p style={{ color: 'var(--muted)', marginBottom: '16px' }}>
+            Je account heeft een tijdelijk wachtwoord. Kies een eigen wachtwoord om verder te gaan.
+          </p>
+        )}
 
         {success ? (
           <div>
@@ -57,7 +71,7 @@ function ChangePasswordModal({ onClose }) {
             </div>
             <div className="btn-group">
               <button className="btn btn-primary" type="submit" disabled={saving}>{saving ? 'Opslaan...' : 'Wachtwoord wijzigen'}</button>
-              <button className="btn btn-outline" type="button" onClick={onClose} disabled={saving}>Annuleren</button>
+              {!forced && <button className="btn btn-outline" type="button" onClick={onClose} disabled={saving}>Annuleren</button>}
             </div>
           </form>
         )}

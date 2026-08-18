@@ -14,9 +14,11 @@ function PricingSummary({ pricing }) {
           <span className="price-value">{formatPrice(pricing.accessoriesPrice)}</span>
         </div>
       )}
-      {pricing.discountPercentage > 0 && (
+      {pricing.discountAmount > 0 && (
         <div className="price-row">
-          <span className="price-label">Korting ({pricing.discountPercentage}%)</span>
+          <span className="price-label">
+            Korting ({pricing.discountType === 'fixed' ? formatPrice(pricing.discountValue) : `${pricing.discountValue}%`})
+          </span>
           <span className="price-value price-value--discount">-{formatPrice(pricing.discountAmount)}</span>
         </div>
       )}

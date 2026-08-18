@@ -363,6 +363,43 @@ textarea {
   overflow: hidden;
 }
 
+.vehicle-image-placeholder {
+  height: 160px;
+  background: var(--panel-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-soft);
+}
+
+.vehicle-card.coming-soon {
+  cursor: not-allowed;
+}
+
+.vehicle-card.coming-soon:hover {
+  border-color: var(--border);
+}
+
+.vehicle-card.coming-soon::after {
+  content: "Binnenkort";
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: var(--warning);
+  color: #fff;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  padding: 5px 9px;
+  border-radius: 999px;
+  text-transform: uppercase;
+}
+
 .vehicle-image img {
   width: 100%;
   height: 100%;
@@ -561,6 +598,49 @@ textarea {
   color: var(--text);
 }
 
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.stat-tile {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stat-delta {
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.stat-delta-good {
+  color: var(--success);
+}
+
+.stat-delta-bad {
+  color: var(--accent-strong);
+}
+
+.stat-delta-neutral {
+  color: var(--muted);
+}
+
 .summary-card {
   background: #ffffff;
   border: 1px solid var(--border);
@@ -737,6 +817,11 @@ textarea {
 .badge.declined {
   background: #fff2f0;
   color: var(--accent-strong);
+}
+
+.badge.expiry-soon {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .modal-overlay {
