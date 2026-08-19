@@ -232,6 +232,11 @@ function QuoteList() {
                     <td style={{ fontWeight: 800, color: '#122d4f' }}>{formatPrice(quote.totalPrice)}</td>
                     <td>
                       <span className={`badge ${quote.status}`}>{STATUS_LABELS[quote.status] || quote.status}</span>
+                      {quote.acceptedByName && (
+                        <div style={{ marginTop: '5px', fontSize: '0.72rem', color: 'var(--muted)' }}>
+                          Online bevestigd door {quote.acceptedByName}
+                        </div>
+                      )}
                       {DISCOUNT_APPROVAL_STATUS_LABELS[quote.discountApprovalStatus] && (
                         <div style={{ marginTop: '5px' }}>
                           <span className={`badge ${DISCOUNT_APPROVAL_BADGE_CLASS[quote.discountApprovalStatus]}`}>

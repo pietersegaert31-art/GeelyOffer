@@ -7,6 +7,7 @@ import {
 } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import CustomerForm from './CustomerForm'
+import TradeInForm from './TradeInForm'
 import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 
@@ -47,7 +48,16 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
     customerType: 'particulier', customerCompany: '', customerVatNumber: '',
     customerStreet: '', customerPostalCode: '', customerCity: '', notes: '',
   })
+  const [tradeIn, setTradeIn] = useState({
+    tradeInEnabled: false, tradeInMake: '', tradeInModel: '',
+    tradeInYear: '', tradeInMileage: '', tradeInValue: 0,
+  })
   const [pricing, setPricing] = useState(null)
+  const [financing, setFinancing] = useState(null)
+
+  useEffect(() => {
+    api.getFinancingSettings().then(setFinancing).catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +91,14 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
           customerCity: quote.customerCity || '',
           notes: quote.notes || '',
         })
+        setTradeIn({
+          tradeInEnabled: !!quote.tradeInEnabled,
+          tradeInMake: quote.tradeInMake || '',
+          tradeInModel: quote.tradeInModel || '',
+          tradeInYear: quote.tradeInYear || '',
+          tradeInMileage: quote.tradeInMileage || '',
+          tradeInValue: quote.tradeInValue || 0,
+        })
       } catch (err) {
         if (!cancelled) setError('Kon offerte niet laden: ' + err.message)
       } finally {
@@ -109,6 +127,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
       setError('')
       await api.updateQuote(quoteId, {
         ...customerInfo,
+        ...tradeIn,
         discountType,
         discountValue,
         accessories: selectedAccessories,
@@ -143,7 +162,10 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
           <div className="modal-body">
             <div className="modal-main">
               <h3 className="section-title" style={{ fontSize: '1.1rem' }}>Klantgegevens</h3>
-              <CustomerForm customerInfo={customerInfo} onChange={setCustomerInfo} />
+              <CustomerForm customerInfo={customerInfo} onChange={setCustomerInfo} excludeId={quoteId} />
+
+              <h3 className="section-title" style={{ fontSize: '1.1rem', marginTop: '20px' }}>Inruilwagen</h3>
+              <TradeInForm tradeIn={tradeIn} onChange={setTradeIn} />
 
               <h3 className="section-title" style={{ fontSize: '1.1rem', marginTop: '20px' }}>Opties</h3>
               {vehicle && (
@@ -215,7 +237,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
             </div>
 
             <div className="modal-side">
-              {pricing && <PricingSummary pricing={pricing} />}
+              {pricing && <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} financing={financing} />}
               <div className="btn-group" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                   {saving ? 'Opslaan...' : 'Wijzigingen opslaan'}

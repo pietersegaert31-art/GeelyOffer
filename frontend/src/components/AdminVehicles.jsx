@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { api, formatPrice } from '../utils/api'
 
 const EMPTY_FORM = {
-  name: '', model: '', basePrice: '', fuel: '', transmission: '', power: '', torque: '', consumption: '', active: true, comingSoon: false,
+  name: '', model: '', basePrice: '', fuel: '', transmission: '', power: '', torque: '', consumption: '', active: true, comingSoon: false, deliveryEstimate: '',
 }
 
 function VehicleFormModal({ vehicle, onClose, onSaved }) {
@@ -10,6 +10,7 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
     name: vehicle.name, model: vehicle.model, basePrice: vehicle.basePrice, fuel: vehicle.fuel,
     transmission: vehicle.transmission, power: vehicle.power || '', torque: vehicle.torque || '',
     consumption: vehicle.consumption || '', active: !!vehicle.active, comingSoon: !!vehicle.comingSoon,
+    deliveryEstimate: vehicle.deliveryEstimate || '',
   } : EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -32,6 +33,7 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
         consumption: form.consumption ? parseFloat(form.consumption) : null,
         active: form.active,
         comingSoon: form.comingSoon,
+        deliveryEstimate: form.deliveryEstimate || null,
       }
       if (vehicle) {
         await api.updateVehicle(vehicle.id, payload)
@@ -84,6 +86,10 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
               <label>Transmissie{form.comingSoon && ' (optioneel)'}</label>
               <input value={form.transmission} onChange={(e) => set('transmission', e.target.value)} required={!form.comingSoon} placeholder="Automatisch" />
             </div>
+          </div>
+          <div className="form-group">
+            <label>Levertijd</label>
+            <input value={form.deliveryEstimate} onChange={(e) => set('deliveryEstimate', e.target.value)} placeholder="Bv. 8-10 weken, of Op voorraad" />
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
@@ -156,6 +162,7 @@ function AdminVehicles() {
                 <th>Uitvoering</th>
                 <th>Basisprijs</th>
                 <th>Vermogen</th>
+                <th>Levertijd</th>
                 <th>Status</th>
                 <th>Acties</th>
               </tr>
@@ -167,6 +174,7 @@ function AdminVehicles() {
                   <td>{v.model}</td>
                   <td>{v.comingSoon ? '—' : formatPrice(v.basePrice)}</td>
                   <td>{v.power ? `${v.power} pk` : '—'}</td>
+                  <td>{v.deliveryEstimate || '—'}</td>
                   <td>
                     <span className={`badge ${v.active ? 'sent' : 'draft'}`}>{v.active ? 'Actief' : 'Inactief'}</span>
                     {v.comingSoon && <span className="badge declined" style={{ marginLeft: '6px' }}>Coming soon</span>}

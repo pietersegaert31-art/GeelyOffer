@@ -4,6 +4,7 @@ import QuoteBuilder from './components/QuoteBuilder'
 import QuoteList from './components/QuoteList'
 import LoginPage from './components/LoginPage'
 import ResetPasswordPage from './components/ResetPasswordPage'
+import AcceptQuotePage from './components/AcceptQuotePage'
 import AdminPage from './components/AdminPage'
 import ReportsPage from './components/ReportsPage'
 import ChangePasswordModal from './components/ChangePasswordModal'
@@ -18,6 +19,11 @@ function App() {
   const resetToken = new URLSearchParams(window.location.search).get('resetToken')
   if (resetToken) {
     return <ResetPasswordPage token={resetToken} />
+  }
+
+  const acceptQuoteToken = new URLSearchParams(window.location.search).get('acceptQuote')
+  if (acceptQuoteToken) {
+    return <AcceptQuotePage token={acceptQuoteToken} />
   }
 
   if (loading) {

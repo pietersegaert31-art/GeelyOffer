@@ -47,7 +47,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
   });
 }
 
-export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespersonName, pdfBuffer, filename }) {
+export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespersonName, pdfBuffer, filename, acceptUrl }) {
   if (!isEmailConfigured()) {
     const error = new Error('E-mail is niet geconfigureerd op deze server (SMTP_HOST/SMTP_USER/SMTP_PASS ontbreken)');
     error.status = 503;
@@ -64,6 +64,11 @@ export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespers
       `Beste ${customerName},`,
       '',
       `Bijgevoegd vindt u uw persoonlijke offerte voor de ${vehicleLabel}.`,
+      ...(acceptUrl ? [
+        '',
+        'Akkoord met deze offerte? Bevestig online, zonder te moeten afdrukken of ondertekenen:',
+        acceptUrl,
+      ] : []),
       '',
       salespersonName ? `Met vriendelijke groeten,\n${salespersonName}` : 'Met vriendelijke groeten,',
     ].join('\n'),

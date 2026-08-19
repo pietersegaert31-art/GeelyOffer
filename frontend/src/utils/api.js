@@ -108,6 +108,14 @@ export const api = {
   async duplicateQuote(id) {
     return request(`/quotes/${id}/duplicate`, { method: 'POST' })
   },
+  async getCustomerHistory({ email = '', phone = '', vatNumber = '', excludeId = '' } = {}) {
+    const params = new URLSearchParams()
+    if (email) params.set('email', email)
+    if (phone) params.set('phone', phone)
+    if (vatNumber) params.set('vatNumber', vatNumber)
+    if (excludeId) params.set('excludeId', excludeId)
+    return request(`/quotes/customer-history?${params.toString()}`)
+  },
   async sendQuoteEmail(id) {
     return request(`/quotes/${id}/send-email`, { method: 'POST' })
   },
@@ -171,6 +179,33 @@ export const api = {
     return request(`/vat-lookup/${encodeURIComponent(vatNumber)}`)
   },
 
+  // Public quote acceptance (no login — reached via the link in the offer e-mail)
+  async getQuoteAcceptance(token) {
+    return request(`/quote-acceptance/${encodeURIComponent(token)}`)
+  },
+  async acceptQuote(token, acceptedByName) {
+    return request(`/quote-acceptance/${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify({ acceptedByName }) })
+  },
+
+  // Financing simulation settings
+  async getFinancingSettings() {
+    return request('/settings/financing')
+  },
+  async updateFinancingSettings(data) {
+    return request('/settings/financing', { method: 'PUT', body: JSON.stringify(data) })
+  },
+
+  // GDPR customer data tooling (admin only)
+  async gdprSearch(q) {
+    return request(`/gdpr/search?q=${encodeURIComponent(q)}`)
+  },
+  gdprExportUrl(ids) {
+    return `${API_BASE_URL}/gdpr/export?ids=${ids.map(encodeURIComponent).join(',')}`
+  },
+  async gdprAnonymize(quoteIds) {
+    return request('/gdpr/anonymize', { method: 'POST', body: JSON.stringify({ quoteIds }) })
+  },
+
   // Audit log
   async getAuditLog({ entityType = '', entityId = '', page = 1, limit = 50 } = {}) {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) })
@@ -230,6 +265,21 @@ export function formatPrice(price) {
 const VAT_RATE = 0.21
 export function exclVat(inclVatPrice) {
   return inclVatPrice / (1 + VAT_RATE)
+}
+
+// Mirrors backend/src/utils/pricing.js's calculateMonthlyPayment exactly (same standard
+// amortization formula) so the live preview while building a quote never has to make a
+// network round-trip and can never drift from what's shown on the PDF.
+export function calculateMonthlyPayment(principal, annualRatePercent, termMonths) {
+  if (!Number.isFinite(principal) || principal <= 0 || !Number.isFinite(termMonths) || termMonths <= 0) {
+    return 0
+  }
+  const monthlyRate = (annualRatePercent || 0) / 100 / 12
+  if (monthlyRate === 0) {
+    return principal / termMonths
+  }
+  const factor = Math.pow(1 + monthlyRate, termMonths)
+  return (principal * monthlyRate * factor) / (factor - 1)
 }
 
 export function formatDate(dateString) {

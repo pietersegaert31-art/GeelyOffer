@@ -45,6 +45,9 @@ function VariantSelector({ vehicles, selectedModel, selectedVariant, onSelect })
             </div>
             <div className="vehicle-price">Incl. BTW: {formatPrice(variant.basePrice)}</div>
             <div className="vehicle-price-excl">Excl. BTW: {formatPrice(exclVat(variant.basePrice))}</div>
+            {variant.deliveryEstimate && (
+              <div className="vehicle-delivery">Levertijd: {variant.deliveryEstimate}</div>
+            )}
           </div>
         </div>
       ))}

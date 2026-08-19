@@ -206,6 +206,9 @@ export function initializeDatabase() {
       )
     `);
     addColumnIfMissing(database, 'vehicles', 'comingSoon', 'BOOLEAN DEFAULT 0');
+    // Free-text so a manager can write "Op voorraad", "8-10 weken", or a specific date —
+    // whatever's accurate at the time — without the rigidity of a strict date field.
+    addColumnIfMissing(database, 'vehicles', 'deliveryEstimate', 'TEXT');
 
     // Accessories / options table (paint, upholstery, comfort add-ons, ...)
     database.run(`
@@ -276,6 +279,27 @@ export function initializeDatabase() {
     addColumnIfMissing(database, 'quotes', 'customerStreet', 'TEXT');
     addColumnIfMissing(database, 'quotes', 'customerPostalCode', 'TEXT');
     addColumnIfMissing(database, 'quotes', 'customerCity', 'TEXT');
+    // Trade-in (inruilwagen): a purely informational deduction shown to the customer on
+    // the offer, kept deliberately separate from basePrice/subtotal/vatAmount/totalPrice
+    // — those stay "what the car itself sells for" for revenue reporting, while the
+    // trade-in value is just subtracted at display time to show what the customer still
+    // owes out of pocket. Belgian VAT treatment of a trade-in can involve a margin
+    // scheme depending on the situation, which this app has no business modeling —
+    // sales enters a plain estimated value, not a tax computation.
+    addColumnIfMissing(database, 'quotes', 'tradeInEnabled', 'BOOLEAN DEFAULT 0');
+    addColumnIfMissing(database, 'quotes', 'tradeInMake', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'tradeInModel', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'tradeInYear', 'INTEGER');
+    addColumnIfMissing(database, 'quotes', 'tradeInMileage', 'INTEGER');
+    addColumnIfMissing(database, 'quotes', 'tradeInValue', 'REAL DEFAULT 0');
+    // Online acceptance: a hashed, single-use-per-send token (same scheme as the
+    // password-reset flow in routes/auth.js) lets a customer accept an offer from the
+    // e-mailed link without an account. Re-sending the e-mail issues a fresh token,
+    // invalidating any previous link — nothing here is ever stored in plaintext.
+    addColumnIfMissing(database, 'quotes', 'acceptanceTokenHash', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'acceptanceTokenExpires', 'DATETIME');
+    addColumnIfMissing(database, 'quotes', 'acceptedAt', 'DATETIME');
+    addColumnIfMissing(database, 'quotes', 'acceptedByName', 'TEXT');
 
     // Quote Items (accessories/options) table
     database.run(`
@@ -341,6 +365,19 @@ export function initializeDatabase() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Generic key/value settings store — currently only used for the financing
+    // simulation's interest rate and available terms (see routes/settings.js), but kept
+    // generic rather than dedicated columns so future admin-configurable values don't
+    // each need their own migration.
+    database.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
+    database.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('financingAnnualRatePercent', '6.9')`);
+    database.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('financingTerms', '36,48,60')`);
 
     database.get('SELECT COUNT(*) AS count FROM vehicles', (err, row) => {
       if (err) {

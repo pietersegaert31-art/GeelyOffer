@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
 import { calculatePricing, validatePricingInputs, discountNeedsApproval } from '../utils/pricing.js';
@@ -13,7 +14,10 @@ router.use(requireAuth, blockPendingPasswordChange);
 const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'declined'];
 const OPEN_STATUSES = ['draft', 'sent'];
 const EXPIRY_WARNING_DAYS = 7;
-const BLOCKING_APPROVAL_STATUSES = ['pending', 'rejected'];
+// Exported so the public quote-acceptance route (routes/quoteAcceptance.js) applies the
+// exact same rule: a customer can't click "accept" on a discount that hasn't cleared
+// manager sign-off internally yet.
+export const BLOCKING_APPROVAL_STATUSES = ['pending', 'rejected'];
 
 // A manager/admin's own discount never needs sign-off — they're the approver. A rep's
 // discount needs one only once it clears the threshold; a small/no discount never does.
@@ -173,6 +177,82 @@ router.get('/export.csv', async (req, res) => {
   }
 });
 
+// Looks up past quotes for the same customer by email, phone, or VAT number, so a rep
+// can recognize a repeat/existing customer while filling in the customer form instead of
+// treating every quote as a first contact. Matches on ANY of the three identifiers (a
+// customer might reuse the same email with a new phone, or vice versa). Phone numbers are
+// compared with separators stripped and the country code collapsed to the leading "0"
+// Belgians actually dial, since "+32 470 12 34 56", "0032470123456", and "0470123456" are
+// all the same number typed differently.
+function normalizePhone(value) {
+  let digits = String(value || '').replace(/[\s.\-/]/g, '');
+  if (digits.startsWith('+32')) digits = `0${digits.slice(3)}`;
+  else if (digits.startsWith('0032')) digits = `0${digits.slice(4)}`;
+  return digits;
+}
+// Same normalization, applied to the stored column so both sides compare equal —
+// strip separators first, then collapse whichever country-code form is present.
+const PHONE_MATCH_SQL = `
+  REPLACE(
+    REPLACE(
+      REPLACE(REPLACE(REPLACE(REPLACE(customerPhone, ' ', ''), '.', ''), '-', ''), '/', ''),
+    '0032', '0'),
+  '+32', '0') = ?
+`;
+
+router.get('/customer-history', async (req, res) => {
+  try {
+    const { email, phone, vatNumber, excludeId } = req.query;
+    const normalizedEmail = email ? email.trim().toLowerCase() : '';
+    const normalizedPhone = phone ? normalizePhone(phone) : '';
+    const normalizedVat = vatNumber ? normalizeVatNumber(vatNumber) : '';
+
+    if (!normalizedEmail && !normalizedPhone && !normalizedVat) {
+      return res.json([]);
+    }
+
+    const conditions = [];
+    const params = [];
+    if (normalizedEmail) {
+      conditions.push('LOWER(customerEmail) = ?');
+      params.push(normalizedEmail);
+    }
+    if (normalizedPhone) {
+      conditions.push(PHONE_MATCH_SQL);
+      params.push(normalizedPhone);
+    }
+    if (normalizedVat) {
+      conditions.push('customerVatNumber = ?');
+      params.push(normalizedVat);
+    }
+
+    let whereClause = `(${conditions.join(' OR ')})`;
+    if (excludeId) {
+      whereClause += ' AND id != ?';
+      params.push(excludeId);
+    }
+
+    const quotes = await allAsync(
+      `SELECT id, customerName, configuration, status, totalPrice, createdAt FROM quotes WHERE ${whereClause} ORDER BY createdAt DESC LIMIT 20`,
+      params
+    );
+
+    res.json(quotes.map((q) => {
+      const configuration = JSON.parse(q.configuration || '{}');
+      return {
+        id: q.id,
+        customerName: q.customerName,
+        vehicleLabel: `${configuration.vehicleName || ''} ${configuration.vehicleModel || ''}`.trim(),
+        status: q.status,
+        totalPrice: q.totalPrice,
+        createdAt: q.createdAt,
+      };
+    }));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get quote by ID
 router.get('/:id', async (req, res) => {
   try {
@@ -214,7 +294,13 @@ router.post('/', async (req, res) => {
       discountType = 'percentage',
       discountValue = 0,
       accessories = [],
-      notes
+      notes,
+      tradeInEnabled = false,
+      tradeInMake,
+      tradeInModel,
+      tradeInYear,
+      tradeInMileage,
+      tradeInValue = 0,
     } = req.body;
 
     if (!customerName || !selectedVehicleId) {
@@ -222,6 +308,9 @@ router.post('/', async (req, res) => {
     }
     if (!['particulier', 'bedrijf'].includes(customerType)) {
       return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
+    }
+    if (tradeInEnabled && (!Number.isFinite(tradeInValue) || tradeInValue < 0)) {
+      return res.status(400).json({ error: 'tradeInValue must be a non-negative number' });
     }
 
     const vehicle = await getAsync('SELECT * FROM vehicles WHERE id = ?', [selectedVehicleId]);
@@ -247,8 +336,8 @@ router.post('/', async (req, res) => {
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         customerName,
@@ -279,6 +368,12 @@ router.post('/', async (req, res) => {
         branch.branchId,
         branch.branchName,
         branch.branchAddress,
+        tradeInEnabled ? 1 : 0,
+        tradeInEnabled ? (tradeInMake || null) : null,
+        tradeInEnabled ? (tradeInModel || null) : null,
+        tradeInEnabled ? (tradeInYear || null) : null,
+        tradeInEnabled ? (tradeInMileage || null) : null,
+        tradeInEnabled ? tradeInValue : 0,
       ]
     );
 
@@ -333,8 +428,8 @@ router.post('/:id/duplicate', async (req, res) => {
     const branch = await resolveActorBranch(req.user);
 
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
       [
         id,
         `${source.customerName} (kopie)`,
@@ -385,7 +480,7 @@ router.post('/:id/duplicate', async (req, res) => {
 // E-mail the quote PDF to the customer, marking the quote as sent
 router.post('/:id/send-email', async (req, res) => {
   try {
-    const { quote, vehicle, items } = await loadQuoteForPdf(req.params.id);
+    const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.id);
     if (!quote.customerEmail) {
       return res.status(400).json({ error: 'Deze offerte heeft geen klant-e-mailadres' });
     }
@@ -393,7 +488,13 @@ router.post('/:id/send-email', async (req, res) => {
       return res.status(400).json({ error: 'De korting op deze offerte moet eerst goedgekeurd worden door een sales manager voordat ze naar de klant verzonden kan worden' });
     }
 
-    const pdfBuffer = await generateQuotePdfBuffer({ quote, vehicle, items });
+    // Fresh acceptance token every send — same one-way-hashed scheme as the password
+    // reset flow (routes/auth.js). A resend deliberately invalidates any earlier link.
+    const acceptanceToken = crypto.randomBytes(32).toString('hex');
+    const acceptanceTokenHash = crypto.createHash('sha256').update(acceptanceToken).digest('hex');
+    const acceptUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/?acceptQuote=${acceptanceToken}`;
+
+    const pdfBuffer = await generateQuotePdfBuffer({ quote, vehicle, items, financing });
     await sendQuoteEmail({
       to: quote.customerEmail,
       customerName: quote.customerName,
@@ -401,9 +502,13 @@ router.post('/:id/send-email', async (req, res) => {
       salespersonName: quote.createdByName,
       pdfBuffer,
       filename: `Offerte_Geely_${quote.customerName.replace(/\s+/g, '_')}.pdf`,
+      acceptUrl,
     });
 
-    await runAsync(`UPDATE quotes SET status = 'sent', updatedAt = CURRENT_TIMESTAMP WHERE id = ?`, [req.params.id]);
+    await runAsync(
+      `UPDATE quotes SET status = 'sent', acceptanceTokenHash = ?, acceptanceTokenExpires = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+      [acceptanceTokenHash, quote.expiresAt, req.params.id]
+    );
     const updated = await getAsync('SELECT * FROM quotes WHERE id = ?', [req.params.id]);
     res.json({ ...updated, configuration: JSON.parse(updated.configuration) });
   } catch (error) {
@@ -461,6 +566,7 @@ router.put('/:id', async (req, res) => {
       discountType, discountValue, accessories,
       customerName, customerEmail, customerPhone, customerCompany,
       customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity,
+      tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue,
       notes, status,
     } = req.body;
     const quoteId = req.params.id;
@@ -477,6 +583,11 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
     }
     const resolvedCustomerType = customerType !== undefined ? customerType : quote.customerType;
+    const resolvedTradeInEnabled = tradeInEnabled !== undefined ? tradeInEnabled : !!quote.tradeInEnabled;
+    const resolvedTradeInValue = tradeInValue !== undefined ? tradeInValue : quote.tradeInValue;
+    if (resolvedTradeInEnabled && (!Number.isFinite(resolvedTradeInValue) || resolvedTradeInValue < 0)) {
+      return res.status(400).json({ error: 'tradeInValue must be a non-negative number' });
+    }
 
     const basePrice = quote.basePrice;
     const resolvedAccessories = accessories ? await resolveAccessories(accessories) : null;
@@ -510,7 +621,7 @@ router.put('/:id', async (req, res) => {
     }
 
     await runAsync(
-      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, notes = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, tradeInEnabled = ?, tradeInMake = ?, tradeInModel = ?, tradeInYear = ?, tradeInMileage = ?, tradeInValue = ?, notes = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         resolvedDiscountType,
@@ -535,6 +646,12 @@ router.put('/:id', async (req, res) => {
         customerStreet !== undefined ? customerStreet : quote.customerStreet,
         customerPostalCode !== undefined ? customerPostalCode : quote.customerPostalCode,
         customerCity !== undefined ? customerCity : quote.customerCity,
+        resolvedTradeInEnabled ? 1 : 0,
+        resolvedTradeInEnabled ? (tradeInMake !== undefined ? tradeInMake : quote.tradeInMake) : null,
+        resolvedTradeInEnabled ? (tradeInModel !== undefined ? tradeInModel : quote.tradeInModel) : null,
+        resolvedTradeInEnabled ? (tradeInYear !== undefined ? tradeInYear : quote.tradeInYear) : null,
+        resolvedTradeInEnabled ? (tradeInMileage !== undefined ? tradeInMileage : quote.tradeInMileage) : null,
+        resolvedTradeInEnabled ? resolvedTradeInValue : 0,
         notes !== undefined ? notes : quote.notes,
         finalStatus,
         quoteId,

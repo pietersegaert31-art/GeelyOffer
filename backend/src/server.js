@@ -19,6 +19,9 @@ import auditLogRouter from './routes/auditLog.js';
 import importsRouter from './routes/imports.js';
 import branchesRouter from './routes/branches.js';
 import vatLookupRouter from './routes/vatLookup.js';
+import gdprRouter from './routes/gdpr.js';
+import settingsRouter from './routes/settings.js';
+import quoteAcceptanceRouter from './routes/quoteAcceptance.js';
 
 dotenv.config();
 
@@ -62,6 +65,9 @@ app.use('/api/audit-log', auditLogRouter);
 app.use('/api/imports', importsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/vat-lookup', vatLookupRouter);
+app.use('/api/gdpr', gdprRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/quote-acceptance', quoteAcceptanceRouter);
 
 // Health check
 app.get('/health', (req, res) => {

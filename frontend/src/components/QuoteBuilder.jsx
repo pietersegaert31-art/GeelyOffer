@@ -10,6 +10,7 @@ import VariantSelector from './VariantSelector'
 import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 import CustomerForm from './CustomerForm'
+import TradeInForm from './TradeInForm'
 
 function needsApprovalWarning(discountType, discountValue, role) {
   if (['admin', 'sales_manager'].includes(role)) return false
@@ -106,9 +107,19 @@ function QuoteBuilder({ onQuoteCreated }) {
     customerCity: '',
     notes: ''
   })
+  const [tradeIn, setTradeIn] = useState({
+    tradeInEnabled: false,
+    tradeInMake: '',
+    tradeInModel: '',
+    tradeInYear: '',
+    tradeInMileage: '',
+    tradeInValue: 0,
+  })
+  const [financing, setFinancing] = useState(null)
 
   useEffect(() => {
     loadData()
+    api.getFinancingSettings().then(setFinancing).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -178,6 +189,7 @@ function QuoteBuilder({ onQuoteCreated }) {
       setLoading(true)
       const quoteData = {
         ...customerInfo,
+        ...tradeIn,
         selectedVehicleId: selectedVariant.id,
         configuration: {
           vehicleName: selectedVariant.name,
@@ -402,6 +414,12 @@ function QuoteBuilder({ onQuoteCreated }) {
                 />
               </div>
 
+              <div className="card">
+                <div className="section-kicker">Optioneel</div>
+                <h2 className="section-title">Inruilwagen</h2>
+                <TradeInForm tradeIn={tradeIn} onChange={setTradeIn} />
+              </div>
+
               {pricing && (
                 <div className="card">
                   <div className="section-kicker">Offerte</div>
@@ -419,7 +437,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                       </div>
                     )}
                   </div>
-                  <PricingSummary pricing={pricing} />
+                  <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} financing={financing} />
                 </div>
               )}
 

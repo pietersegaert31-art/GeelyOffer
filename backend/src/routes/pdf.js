@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getAsync, allAsync } from '../database/init.js';
-import { formatPrice } from '../utils/pricing.js';
+import { formatPrice, calculateMonthlyPayment } from '../utils/pricing.js';
 import { getStandardEquipment } from '../data/standardEquipment.js';
 import { getTechnicalSpecs, WARRANTY_INFO } from '../data/technicalSpecs.js';
 import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
@@ -322,7 +322,7 @@ function drawWarrantyTiles(doc, tiles, y) {
 // Draws the full multi-page quote document onto an already-created PDFDocument and ends it.
 // Shared by both the direct-download route and the e-mail attachment generator so the two
 // paths can never drift out of sync with each other.
-function renderQuotePdf(doc, { quote, vehicle, items }) {
+function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   registerFonts(doc);
 
   // ===================== PAGE 1 — Cover =====================
@@ -405,7 +405,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   if (quote.customerEmail) rightLines.push(quote.customerEmail);
   if (quote.customerPhone) rightLines.push(quote.customerPhone);
 
-  const leftLineCount = 3 + (quote.branchName ? 2 : 0); // offertenr/datum/geldig-tot, + vestiging naam/adres
+  const leftLineCount = 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0); // offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres
   const cardHeight = Math.max(34 + leftLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
 
   doc.lineWidth(1);
@@ -419,6 +419,10 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.text(`Offertenummer: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
   doc.text(`Datum: ${formatDate(quote.createdAt)}`, 56, cy); cy += 16;
   doc.text(`Geldig tot: ${formatDate(quote.expiresAt)}`, 56, cy);
+  if (vehicle.deliveryEstimate) {
+    cy += 16;
+    doc.text(`Levertijd: ${vehicle.deliveryEstimate}`, 56, cy);
+  }
   if (quote.branchName) {
     cy += 16;
     doc.fillColor('#000').fontSize(9).font('Inter').text(`Vestiging: ${quote.branchName}`, 56, cy);
@@ -511,6 +515,66 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
 
   yPos += boxHeight + 24;
 
+  // Trade-in (inruilwagen) — a purely informational deduction, shown separately from
+  // the summary box above so "Totaalprijs incl. BTW" always keeps meaning what it says
+  // (the vehicle's own price) rather than being silently reduced by the trade-in.
+  if (quote.tradeInEnabled) {
+    const tiBoxHeight = 92;
+    doc.roundedRect(boxX, yPos, boxWidth, tiBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
+
+    let tiY = yPos + 16;
+    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('INRUILWAGEN', boxX + boxPadding, tiY, { characterSpacing: 1 });
+    tiY += 16;
+    const tradeInLabel = [quote.tradeInMake, quote.tradeInModel].filter(Boolean).join(' ') || 'Inruilwagen';
+    const tradeInDetail = [
+      quote.tradeInYear ? `bouwjaar ${quote.tradeInYear}` : null,
+      quote.tradeInMileage ? `${Number(quote.tradeInMileage).toLocaleString('nl-BE')} km` : null,
+    ].filter(Boolean).join(', ');
+    doc.font('Inter').fontSize(9).fillColor('#333').text(tradeInDetail ? `${tradeInLabel} (${tradeInDetail})` : tradeInLabel, boxX + boxPadding, tiY, { width: boxWidth - boxPadding * 2 });
+    tiY += 18;
+
+    doc.text('Geschatte inruilwaarde', boxX + boxPadding, tiY, { width: labelWidth });
+    doc.text('-' + formatPrice(quote.tradeInValue), valueX, tiY, { width: valueWidth, align: 'right' });
+    tiY += 24;
+    doc.moveTo(boxX + boxPadding, tiY - 8).lineTo(boxX + boxWidth - boxPadding, tiY - 8).stroke('#CBD3DB');
+
+    doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
+    doc.text('Te betalen na inruil', boxX + boxPadding, tiY, { width: labelWidth });
+    doc.text(formatPrice(Math.max(0, quote.totalPrice - quote.tradeInValue)), valueX, tiY, { width: valueWidth, align: 'right' });
+
+    doc.font('Inter').fontSize(7).fillColor('#999')
+      .text('Schatting door de verkoper, geen bindende taxatie.', boxX, yPos + tiBoxHeight + 4, { width: boxWidth, align: 'right' });
+
+    yPos += tiBoxHeight + 28;
+  }
+
+  // Financing simulation — an indicative monthly payment, never a binding offer (the
+  // disclaimer says so explicitly). Uses the same net amount as the trade-in box above
+  // (after trade-in deduction, if any) since that's what the customer would actually
+  // need to finance.
+  const financingPrincipal = Math.max(0, quote.totalPrice - (quote.tradeInEnabled ? quote.tradeInValue : 0));
+  if (financing && financing.terms.length > 0 && financingPrincipal > 0) {
+    const finBoxHeight = 66;
+    doc.roundedRect(PAGE_LEFT, yPos, CONTENT_WIDTH, finBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
+
+    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('FINANCIERINGSSIMULATIE', PAGE_LEFT + 18, yPos + 14, { characterSpacing: 1 });
+
+    const termColWidth = (CONTENT_WIDTH - 36) / financing.terms.length;
+    financing.terms.forEach((term, i) => {
+      const x = PAGE_LEFT + 18 + i * termColWidth;
+      const monthly = calculateMonthlyPayment(financingPrincipal, financing.annualRatePercent, term);
+      doc.font('Inter-Bold').fontSize(13).fillColor('#000').text(formatPrice(monthly), x, yPos + 30, { width: termColWidth });
+      doc.font('Inter').fontSize(8).fillColor('#666').text(`per maand · ${term} mnd`, x, yPos + 47, { width: termColWidth });
+    });
+
+    yPos += finBoxHeight + 6;
+    doc.font('Inter').fontSize(7).fillColor('#999').text(
+      `Indicatieve schatting o.b.v. ${financing.annualRatePercent}% jaarrente, geen bindend aanbod. Neem contact op met onze financieringspartner voor een persoonlijk voorstel.`,
+      PAGE_LEFT, yPos, { width: CONTENT_WIDTH }
+    );
+    yPos += 22;
+  }
+
   // Notes
   if (quote.notes) {
     doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
@@ -601,6 +665,14 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
 // Loads everything a quote's PDF needs. Throws a descriptive Error if the quote or its
 // vehicle can't be found, so callers (route handler or e-mail sender) can turn that into
 // the right HTTP status / error message for their context.
+async function loadFinancingSettings() {
+  const rows = await allAsync('SELECT key, value FROM settings WHERE key IN (?, ?)', ['financingAnnualRatePercent', 'financingTerms']);
+  const byKey = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const annualRatePercent = parseFloat(byKey.financingAnnualRatePercent ?? '6.9');
+  const terms = (byKey.financingTerms ?? '36,48,60').split(',').map((t) => parseInt(t.trim(), 10)).filter((t) => Number.isFinite(t) && t > 0);
+  return { annualRatePercent, terms };
+}
+
 export async function loadQuoteForPdf(quoteId) {
   const quote = await getAsync('SELECT * FROM quotes WHERE id = ?', [quoteId]);
   if (!quote) {
@@ -617,11 +689,12 @@ export async function loadQuoteForPdf(quoteId) {
   }
 
   const items = await allAsync('SELECT * FROM quote_items WHERE quoteId = ?', [quoteId]);
-  return { quote, vehicle, items };
+  const financing = await loadFinancingSettings();
+  return { quote, vehicle, items, financing };
 }
 
 // Renders a quote to an in-memory PDF buffer (used for e-mail attachments).
-export function generateQuotePdfBuffer({ quote, vehicle, items }) {
+export function generateQuotePdfBuffer({ quote, vehicle, items, financing }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
     const chunks = [];
@@ -629,7 +702,7 @@ export function generateQuotePdfBuffer({ quote, vehicle, items }) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     try {
-      renderQuotePdf(doc, { quote, vehicle, items });
+      renderQuotePdf(doc, { quote, vehicle, items, financing });
     } catch (err) {
       reject(err);
     }
@@ -639,7 +712,7 @@ export function generateQuotePdfBuffer({ quote, vehicle, items }) {
 // Generate PDF quote
 router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res) => {
   try {
-    const { quote, vehicle, items } = await loadQuoteForPdf(req.params.quoteId);
+    const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.quoteId);
 
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
     const filename = `Offerte_Geely_${quote.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
@@ -648,7 +721,7 @@ router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     doc.pipe(res);
 
-    renderQuotePdf(doc, { quote, vehicle, items });
+    renderQuotePdf(doc, { quote, vehicle, items, financing });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }

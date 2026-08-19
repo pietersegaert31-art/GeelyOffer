@@ -1,9 +1,33 @@
 import React, { useState } from 'react'
-import { api } from '../utils/api'
+import { api, formatPrice, formatDate } from '../utils/api'
+import { STATUS_LABELS } from '../utils/constants'
 
-function CustomerForm({ customerInfo, onChange }) {
+function CustomerForm({ customerInfo, onChange, excludeId }) {
   const [vatLookupLoading, setVatLookupLoading] = useState(false)
   const [vatLookupError, setVatLookupError] = useState('')
+  const [history, setHistory] = useState([])
+
+  // Checks whether this customer (by e-mail, phone, or VAT number) already has quotes
+  // elsewhere in the system, so a rep can recognize a repeat customer instead of treating
+  // every quote as a first contact. Fired on blur rather than on every keystroke.
+  const checkHistory = async (info) => {
+    if (!info.customerEmail && !info.customerPhone && !info.customerVatNumber) {
+      setHistory([])
+      return
+    }
+    try {
+      const matches = await api.getCustomerHistory({
+        email: info.customerEmail,
+        phone: info.customerPhone,
+        vatNumber: info.customerType === 'bedrijf' ? info.customerVatNumber : '',
+        excludeId,
+      })
+      setHistory(matches)
+    } catch {
+      // A failed lookup shouldn't block filling in the rest of the form — just skip the notice.
+      setHistory([])
+    }
+  }
 
   const handleChange = (field, value) => {
     onChange({
@@ -45,6 +69,19 @@ function CustomerForm({ customerInfo, onChange }) {
 
   return (
     <div>
+      {history.length > 0 && (
+        <div className="customer-history-notice">
+          <strong>Bekende klant</strong> — {history.length === 1 ? 'eerder gevonden offerte' : `${history.length} eerder gevonden offertes`}:
+          <ul>
+            {history.map((h) => (
+              <li key={h.id}>
+                {h.vehicleLabel || 'Offerte'} · {formatPrice(h.totalPrice)} · {STATUS_LABELS[h.status] || h.status} · {formatDate(h.createdAt)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="form-group">
         <label htmlFor="customerType">Type klant</label>
         <select
@@ -76,6 +113,7 @@ function CustomerForm({ customerInfo, onChange }) {
             type="email"
             value={customerInfo.customerEmail}
             onChange={(e) => handleChange('customerEmail', e.target.value)}
+            onBlur={(e) => checkHistory({ ...customerInfo, customerEmail: e.target.value })}
             placeholder="jan@voorbeeld.com"
             required
           />
@@ -90,6 +128,7 @@ function CustomerForm({ customerInfo, onChange }) {
             type="tel"
             value={customerInfo.customerPhone}
             onChange={(e) => handleChange('customerPhone', e.target.value)}
+            onBlur={(e) => checkHistory({ ...customerInfo, customerPhone: e.target.value })}
             placeholder="+32 2 123 45 67"
             required
           />
@@ -103,6 +142,7 @@ function CustomerForm({ customerInfo, onChange }) {
                 type="text"
                 value={customerInfo.customerVatNumber || ''}
                 onChange={(e) => handleChange('customerVatNumber', e.target.value)}
+                onBlur={(e) => checkHistory({ ...customerInfo, customerVatNumber: e.target.value })}
                 placeholder="BE 0123.456.789"
                 style={{ flex: 1 }}
                 required

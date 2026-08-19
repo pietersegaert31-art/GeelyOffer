@@ -41,7 +41,7 @@ router.get('/:id', async (req, res) => {
 // Add new vehicle (admin)
 router.post('/', requireAdmin, async (req, res) => {
   try {
-    const { name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, comingSoon } = req.body;
+    const { name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, comingSoon, deliveryEstimate } = req.body;
 
     if (!name || !model) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -54,8 +54,8 @@ router.post('/', requireAdmin, async (req, res) => {
 
     const id = uuidv4();
     await runAsync(
-      `INSERT INTO vehicles (id, name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, comingSoon)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO vehicles (id, name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, comingSoon, deliveryEstimate)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         name,
@@ -69,6 +69,7 @@ router.post('/', requireAdmin, async (req, res) => {
         specifications || '{}',
         imageUrl,
         comingSoon ? 1 : 0,
+        deliveryEstimate || null,
       ]
     );
 
@@ -87,14 +88,14 @@ router.put('/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Vehicle not found' });
     }
 
-    const { name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, active, comingSoon } = req.body;
+    const { name, model, basePrice, fuel, transmission, power, torque, consumption, specifications, imageUrl, active, comingSoon, deliveryEstimate } = req.body;
     const resolvedComingSoon = comingSoon === undefined ? existing.comingSoon : (comingSoon ? 1 : 0);
     if (basePrice !== undefined && !resolvedComingSoon && (!Number.isFinite(basePrice) || basePrice <= 0)) {
       return res.status(400).json({ error: 'basePrice must be a positive number' });
     }
 
     await runAsync(
-      `UPDATE vehicles SET name = ?, model = ?, basePrice = ?, fuel = ?, transmission = ?, power = ?, torque = ?, consumption = ?, specifications = ?, imageUrl = ?, active = ?, comingSoon = ?
+      `UPDATE vehicles SET name = ?, model = ?, basePrice = ?, fuel = ?, transmission = ?, power = ?, torque = ?, consumption = ?, specifications = ?, imageUrl = ?, active = ?, comingSoon = ?, deliveryEstimate = ?
        WHERE id = ?`,
       [
         name ?? existing.name,
@@ -109,6 +110,7 @@ router.put('/:id', requireAdmin, async (req, res) => {
         imageUrl ?? existing.imageUrl,
         active === undefined ? existing.active : (active ? 1 : 0),
         resolvedComingSoon,
+        deliveryEstimate !== undefined ? deliveryEstimate : existing.deliveryEstimate,
         req.params.id,
       ]
     );

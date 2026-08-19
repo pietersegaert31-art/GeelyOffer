@@ -18,6 +18,8 @@ const ACTION_LABELS = {
   status_changed: 'Status gewijzigd',
   price_changed: 'Prijs gewijzigd',
   created: 'Aangemaakt',
+  gdpr_anonymized: 'Persoonsgegevens verwijderd (GDPR)',
+  accepted_online: 'Online bevestigd door klant',
 }
 
 function fmtDiscount(d) {
@@ -40,6 +42,10 @@ function describeDetails(entry) {
       return `${d.name || ''}: ${formatPrice(d.from)} → ${formatPrice(d.to)}`
     case 'created':
       return `${d.name || ''}${d.price !== undefined ? ` (${formatPrice(d.price)})` : ''}`
+    case 'gdpr_anonymized':
+      return 'Naam, contactgegevens, adres en opmerkingen gewist'
+    case 'accepted_online':
+      return `Bevestigd door: ${d.acceptedByName || '—'}`
     default:
       return d && Object.keys(d).length ? JSON.stringify(d) : '—'
   }
