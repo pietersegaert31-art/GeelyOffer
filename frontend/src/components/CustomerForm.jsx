@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { api, formatPrice, formatDate } from '../utils/api'
-import { STATUS_LABELS } from '../utils/constants'
+import { STATUS_LABELS, QUOTE_LANGUAGES, QUOTE_LANGUAGE_LABELS } from '../utils/constants'
 
 function CustomerForm({ customerInfo, onChange, excludeId }) {
   const [vatLookupLoading, setVatLookupLoading] = useState(false)
@@ -82,16 +82,30 @@ function CustomerForm({ customerInfo, onChange, excludeId }) {
         </div>
       )}
 
-      <div className="form-group">
-        <label htmlFor="customerType">Type klant</label>
-        <select
-          id="customerType"
-          value={customerInfo.customerType || 'particulier'}
-          onChange={(e) => handleTypeChange(e.target.value)}
-        >
-          <option value="particulier">Particulier</option>
-          <option value="bedrijf">Bedrijf</option>
-        </select>
+      <div className="form-row">
+        <div className="form-group">
+          <label htmlFor="customerType">Type klant</label>
+          <select
+            id="customerType"
+            value={customerInfo.customerType || 'particulier'}
+            onChange={(e) => handleTypeChange(e.target.value)}
+          >
+            <option value="particulier">Particulier</option>
+            <option value="bedrijf">Bedrijf</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label htmlFor="language">Taal offerte (PDF &amp; e-mail)</label>
+          <select
+            id="language"
+            value={customerInfo.language || 'nl'}
+            onChange={(e) => handleChange('language', e.target.value)}
+          >
+            {QUOTE_LANGUAGES.map((lang) => (
+              <option key={lang} value={lang}>{QUOTE_LANGUAGE_LABELS[lang]}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="form-row">

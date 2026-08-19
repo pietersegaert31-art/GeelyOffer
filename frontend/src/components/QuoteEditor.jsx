@@ -47,7 +47,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   const [customerInfo, setCustomerInfo] = useState({
     customerName: '', customerEmail: '', customerPhone: '',
     customerType: 'particulier', customerCompany: '', customerVatNumber: '',
-    customerStreet: '', customerPostalCode: '', customerCity: '', notes: '',
+    customerStreet: '', customerPostalCode: '', customerCity: '', notes: '', language: 'nl',
   })
   const [tradeIn, setTradeIn] = useState({
     tradeInEnabled: false, tradeInMake: '', tradeInModel: '',
@@ -99,6 +99,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
           customerPostalCode: quote.customerPostalCode || '',
           customerCity: quote.customerCity || '',
           notes: quote.notes || '',
+          language: quote.language || 'nl',
         })
         setTradeIn({
           tradeInEnabled: !!quote.tradeInEnabled,

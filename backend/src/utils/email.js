@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { EMAIL, resolveLang } from '../i18n/translate.js';
 
 let transporter;
 
@@ -47,7 +48,7 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
   });
 }
 
-export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespersonName, pdfBuffer, filename, acceptUrl }) {
+export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespersonName, pdfBuffer, filename, acceptUrl, language }) {
   if (!isEmailConfigured()) {
     const error = new Error('E-mail is niet geconfigureerd op deze server (SMTP_HOST/SMTP_USER/SMTP_PASS ontbreken)');
     error.status = 503;
@@ -55,22 +56,23 @@ export async function sendQuoteEmail({ to, customerName, vehicleLabel, salespers
   }
 
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+  const T = EMAIL[resolveLang(language)];
 
   await getTransporter().sendMail({
     from: `"Geely Offertes" <${from}>`,
     to,
-    subject: `Uw Geely offerte — ${vehicleLabel}`,
+    subject: T.quoteSubject(vehicleLabel),
     text: [
-      `Beste ${customerName},`,
+      T.greeting(customerName),
       '',
-      `Bijgevoegd vindt u uw persoonlijke offerte voor de ${vehicleLabel}.`,
+      T.attachedIntro(vehicleLabel),
       ...(acceptUrl ? [
         '',
-        'Akkoord met deze offerte? Bevestig online, zonder te moeten afdrukken of ondertekenen:',
+        T.acceptIntro,
         acceptUrl,
       ] : []),
       '',
-      salespersonName ? `Met vriendelijke groeten,\n${salespersonName}` : 'Met vriendelijke groeten,',
+      salespersonName ? `${T.signOff}\n${salespersonName}` : T.signOff,
     ].join('\n'),
     attachments: [
       {

@@ -106,7 +106,8 @@ function QuoteBuilder({ onQuoteCreated }) {
     customerStreet: '',
     customerPostalCode: '',
     customerCity: '',
-    notes: ''
+    notes: '',
+    language: 'nl'
   })
   const [tradeIn, setTradeIn] = useState({
     tradeInEnabled: false,

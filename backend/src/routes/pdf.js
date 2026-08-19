@@ -5,8 +5,9 @@ import { fileURLToPath } from 'url';
 import { getAsync, allAsync } from '../database/init.js';
 import { formatPrice, calculateMonthlyPayment } from '../utils/pricing.js';
 import { getStandardEquipment } from '../data/standardEquipment.js';
-import { getTechnicalSpecs, WARRANTY_INFO } from '../data/technicalSpecs.js';
+import { getTechnicalSpecs, getWarrantyInfo } from '../data/technicalSpecs.js';
 import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
+import { LOCALE, PDF, resolveLang, translateFuel, translateTransmission, powerUnit, fuelKicker, translateAccessoryName } from '../i18n/translate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, '../assets/geely-logo.png');
@@ -37,14 +38,8 @@ const CONTENT_WIDTH = PAGE_RIGHT - PAGE_LEFT;
 
 const router = express.Router();
 
-function formatDate(value) {
-  return new Date(value).toLocaleDateString('nl-BE');
-}
-
-function getFuelKicker(fuel) {
-  if (fuel === 'Elektrisch') return '100% ELEKTRISCH';
-  if (fuel === 'Plug-in Hybrid') return 'PLUG-IN HYBRIDE';
-  return (fuel || '').toUpperCase();
+function formatDate(value, lang) {
+  return new Date(value).toLocaleDateString(LOCALE[resolveLang(lang)]);
 }
 
 function parseSpecifications(raw) {
@@ -78,16 +73,16 @@ function drawBadgeRow(doc, badges, y) {
 }
 
 // Draws a 3-column excl./BTW/incl. price bar (cover page) and returns the y position after it.
-function drawPriceBar(doc, { exclVat, vat, inclVat }, y) {
+function drawPriceBar(doc, { exclVat, vat, inclVat }, y, T) {
   const boxHeight = 76;
   doc.lineWidth(1);
   doc.roundedRect(PAGE_LEFT, y, CONTENT_WIDTH, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 
   const colWidth = CONTENT_WIDTH / 3;
   const columns = [
-    { label: 'PRIJS EXCL. BTW', value: formatPrice(exclVat), accent: false },
-    { label: 'BTW (21%)', value: formatPrice(vat), accent: false },
-    { label: 'TOTAALPRIJS INCL. BTW', value: formatPrice(inclVat), accent: true },
+    { label: T.priceExclVat, value: formatPrice(exclVat), accent: false },
+    { label: T.vat21, value: formatPrice(vat), accent: false },
+    { label: T.totalInclVatBar, value: formatPrice(inclVat), accent: true },
   ];
 
   columns.forEach((col, i) => {
@@ -193,15 +188,6 @@ function drawEquipmentColumns(doc, equipment, topY) {
     drawEquipmentGroup(doc, group, column === 0 ? leftX : rightX, y, colWidth, chosenFontSize);
   });
 }
-
-const SPEC_SECTION_TITLES = {
-  drivetrain: 'Aandrijflijn',
-  chassis: 'Chassis',
-  performance: 'Prestaties',
-  weight: 'Gewicht & trekken',
-  charging: 'Actieradius & laden',
-  dimensions: 'Afmetingen',
-};
 
 // Exact rendered height of a label/value spec table (section title + its rows) at the
 // given column width — same measure-first approach as the equipment groups above, so
@@ -312,11 +298,30 @@ function drawWarrantyTiles(doc, tiles, y) {
     const textWidth = colWidth - padding * (i === tiles.length - 1 ? 2 : 1.5);
 
     doc.fillColor('#1F4E78').fontSize(20).font('Inter-Bold').text(tile.title, textX, y + 18, { width: textWidth });
-    doc.fillColor('#000').fontSize(10).font('Inter-SemiBold').text(tile.subtitle, textX, y + 44, { width: textWidth });
-    doc.fillColor('#666').fontSize(8).font('Inter').text(tile.text, textX, y + 62, { width: textWidth });
+
+    // Body text is positioned from the subtitle's measured height rather than a fixed
+    // +62 — the French subtitles are longer than their Dutch originals and can wrap to
+    // two lines in this narrow a column, which a fixed single-line offset would let the
+    // body text overlap.
+    doc.fontSize(10).font('Inter-SemiBold');
+    const subtitleY = y + 44;
+    doc.fillColor('#000').text(tile.subtitle, textX, subtitleY, { width: textWidth });
+    const subtitleHeight = doc.heightOfString(tile.subtitle, { width: textWidth });
+
+    doc.fillColor('#666').fontSize(8).font('Inter').text(tile.text, textX, subtitleY + subtitleHeight + 4, { width: textWidth });
   });
 
   return y + boxHeight;
+}
+
+// Repeated on every continuation page (2 onward): small corner logo, page title, vehicle
+// subtitle, divider. Factored out so the 5 call sites below can never drift apart from
+// each other, or forget to translate one when the other four were updated.
+function drawContinuationHeader(doc, title, vehicleLabel, smallLogoWidth) {
+  doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+  doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text(title, PAGE_LEFT, 40);
+  doc.fillColor('#666').fontSize(10).font('Inter').text(vehicleLabel, PAGE_LEFT, 66);
+  doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
 }
 
 // Draws the full multi-page quote document onto an already-created PDFDocument and ends it.
@@ -324,12 +329,15 @@ function drawWarrantyTiles(doc, tiles, y) {
 // paths can never drift out of sync with each other.
 function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   registerFonts(doc);
+  const lang = resolveLang(quote.language);
+  const T = PDF[lang];
+  const vehicleLabel = `${vehicle.name} ${vehicle.model}`;
 
   // ===================== PAGE 1 — Cover =====================
   const coverLogoWidth = 110;
   doc.image(LOGO_PATH, PAGE_LEFT, 40, { width: coverLogoWidth });
 
-  const kickerLabel = `OFFERTE · ${new Intl.DateTimeFormat('nl-BE', { month: 'long', year: 'numeric' }).format(new Date(quote.createdAt)).toUpperCase()}`;
+  const kickerLabel = `${T.kickerPrefix} · ${new Intl.DateTimeFormat(LOCALE[lang], { month: 'long', year: 'numeric' }).format(new Date(quote.createdAt)).toUpperCase()}`;
   doc.fillColor('#999').fontSize(9).font('Inter')
     .text(kickerLabel, 300, 40 + (coverLogoWidth * LOGO_ASPECT - 9) / 2, { width: 250, align: 'right', characterSpacing: 1 });
 
@@ -357,37 +365,34 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   cursorY += 17;
 
   doc.fillColor('#1F4E78').fontSize(10).font('Inter-Bold')
-    .text(getFuelKicker(vehicle.fuel), PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center', characterSpacing: 1.5 });
+    .text(fuelKicker(vehicle.fuel, lang), PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center', characterSpacing: 1.5 });
   cursorY += 22;
 
   doc.fillColor('#0F0F0F').fontSize(28).font('Inter-Bold')
-    .text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
+    .text(vehicleLabel, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
   cursorY += 40;
 
   doc.fillColor('#666').fontSize(11).font('Inter')
-    .text(`Persoonlijke offerte voor ${quote.customerName}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
+    .text(`${T.personalQuoteFor} ${quote.customerName}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
   cursorY += 32;
 
   const specs = parseSpecifications(vehicle.specifications);
   const rangeValue = specs.range || specs.totalRange || specs.evRange || null;
   const badges = [
-    vehicle.fuel,
-    vehicle.transmission,
-    vehicle.power ? `${vehicle.power} pk` : null,
-    rangeValue ? `Actieradius ${rangeValue}` : null,
+    translateFuel(vehicle.fuel, lang),
+    translateTransmission(vehicle.transmission, lang),
+    vehicle.power ? `${vehicle.power} ${powerUnit(lang)}` : null,
+    rangeValue ? `${T.rangeLabel} ${rangeValue}` : null,
   ].filter(Boolean);
   cursorY = drawBadgeRow(doc, badges, cursorY);
   cursorY += 24;
 
-  drawPriceBar(doc, { exclVat: quote.subtotal, vat: quote.vatAmount, inclVat: quote.totalPrice }, cursorY);
+  drawPriceBar(doc, { exclVat: quote.subtotal, vat: quote.vatAmount, inclVat: quote.totalPrice }, cursorY, T);
 
   // ===================== PAGE 2 — Offer details & pricing =====================
   doc.addPage();
   const smallLogoWidth = 70;
-  doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-  doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
-  doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-  doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+  drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
 
   // Offer + customer info cards — height is computed from actual content instead of a
   // fixed number, since a company customer now carries a name, VAT number, and full
@@ -398,7 +403,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
 
   const rightLines = [];
   if (quote.customerType === 'bedrijf' && quote.customerCompany) rightLines.push(quote.customerCompany);
-  if (quote.customerType === 'bedrijf' && quote.customerVatNumber) rightLines.push(`BTW: ${quote.customerVatNumber}`);
+  if (quote.customerType === 'bedrijf' && quote.customerVatNumber) rightLines.push(`${T.vatNumberLabel}: ${quote.customerVatNumber}`);
   if (quote.customerStreet) rightLines.push(quote.customerStreet);
   const cityLine = [quote.customerPostalCode, quote.customerCity].filter(Boolean).join(' ');
   if (cityLine) rightLines.push(cityLine);
@@ -413,25 +418,25 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   doc.roundedRect(305, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
 
   let cy = cardY + 16;
-  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text('OFFERTEGEGEVENS', 56, cy, { characterSpacing: 1 });
+  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.quoteInfoHeader, 56, cy, { characterSpacing: 1 });
   cy += 18;
   doc.fillColor('#000').fontSize(9).font('Inter');
-  doc.text(`Offertenummer: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
-  doc.text(`Datum: ${formatDate(quote.createdAt)}`, 56, cy); cy += 16;
-  doc.text(`Geldig tot: ${formatDate(quote.expiresAt)}`, 56, cy);
+  doc.text(`${T.quoteNumberLabel}: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
+  doc.text(`${T.dateLabel}: ${formatDate(quote.createdAt, lang)}`, 56, cy); cy += 16;
+  doc.text(`${T.validUntilLabel}: ${formatDate(quote.expiresAt, lang)}`, 56, cy);
   if (vehicle.deliveryEstimate) {
     cy += 16;
-    doc.text(`Levertijd: ${vehicle.deliveryEstimate}`, 56, cy);
+    doc.text(`${T.deliveryTimeLabel}: ${vehicle.deliveryEstimate}`, 56, cy);
   }
   if (quote.branchName) {
     cy += 16;
-    doc.fillColor('#000').fontSize(9).font('Inter').text(`Vestiging: ${quote.branchName}`, 56, cy);
+    doc.fillColor('#000').fontSize(9).font('Inter').text(`${T.branchLabel}: ${quote.branchName}`, 56, cy);
     cy += 13;
     doc.fillColor('#666').fontSize(8).font('Inter').text(quote.branchAddress || '', 56, cy);
   }
 
   let cy2 = cardY + 16;
-  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text('KLANTGEGEVENS', 321, cy2, { characterSpacing: 1 });
+  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.customerInfoHeader, 321, cy2, { characterSpacing: 1 });
   cy2 += 18;
   doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(quote.customerName, 321, cy2);
   cy2 += 16;
@@ -441,24 +446,24 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   let yPos = cardY + cardHeight + 18;
 
   doc.fillColor('#999').fontSize(8).font('Inter')
-    .text('Alle vermelde prijzen zijn Geely-adviesprijzen, inclusief 21% BTW.', PAGE_LEFT, yPos);
+    .text(T.priceDisclaimer, PAGE_LEFT, yPos);
   yPos += 12;
 
   // Pricing breakdown table
   const drawTableHeaderBar = (y) => {
     doc.fontSize(9).font('Inter-Bold').fillColor('#FFF');
     doc.rect(PAGE_LEFT, y, CONTENT_WIDTH, 24).fill('#1F4E78');
-    doc.fillColor('#FFF').text('Omschrijving', 50, y + 7);
-    doc.text('Eenheidsprijs', 350, y + 7);
-    doc.text('Aantal', 430, y + 7);
-    doc.text('Totaal', 480, y + 7);
+    doc.fillColor('#FFF').text(T.colDescription, 50, y + 7);
+    doc.text(T.colUnitPrice, 350, y + 7);
+    doc.text(T.colQuantity, 430, y + 7);
+    doc.text(T.colTotal, 480, y + 7);
   };
   drawTableHeaderBar(yPos);
   yPos += 24;
 
   const rows = [
-    { name: `${vehicle.name} ${vehicle.model}`, unitPrice: quote.basePrice, quantity: 1, totalPrice: quote.basePrice },
-    ...items.map(item => ({ name: item.itemName, unitPrice: item.unitPrice, quantity: item.quantity, totalPrice: item.totalPrice })),
+    { name: vehicleLabel, unitPrice: quote.basePrice, quantity: 1, totalPrice: quote.basePrice },
+    ...items.map(item => ({ name: translateAccessoryName(item.itemName, lang), unitPrice: item.unitPrice, quantity: item.quantity, totalPrice: item.totalPrice })),
   ];
 
   const rowHeight = 18;
@@ -472,10 +477,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     // with a fresh header and a repeated column bar so the continuation reads cleanly.
     if (yPos + rowHeight > pageBottomForTable) {
       doc.addPage();
-      doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-      doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
-      doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-      doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+      drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
       yPos = 108;
       drawTableHeaderBar(yPos);
       yPos += 24;
@@ -504,20 +506,17 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     + (hasTradeIn ? 13 : 0) + (hasTradeIn ? 118 : 76) + (hasTradeIn ? 12 : 0);
   if (yPos + priceLadderHeight > pageBottomForTable) {
     doc.addPage();
-    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
-    doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+    drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
     yPos = 108;
   }
 
   doc.fontSize(9).font('Inter').fillColor('#000');
-  doc.text('Subtotaal (incl. BTW):', 350, yPos, { width: 120 });
+  doc.text(T.subtotalInclVat, 350, yPos, { width: 120 });
   doc.text(formatPrice(quote.basePrice + quote.accessories), 480, yPos, { width: 70, align: 'right' });
   yPos += 18;
 
   if (quote.discountPercentage > 0) {
-    doc.text(`Korting (${quote.discountPercentage}%):`, 350, yPos, { width: 120 });
+    doc.text(T.discountLabel(quote.discountPercentage), 350, yPos, { width: 120 });
     doc.text('-' + formatPrice(quote.discountAmount), 480, yPos, { width: 70, align: 'right' });
     yPos += 18;
   }
@@ -537,13 +536,13 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   const valueWidth = boxWidth - boxPadding * 2 - labelWidth;
 
   if (hasTradeIn) {
-    const tradeInLabel = [quote.tradeInMake, quote.tradeInModel].filter(Boolean).join(' ') || 'Inruilwagen';
+    const tradeInLabel = [quote.tradeInMake, quote.tradeInModel].filter(Boolean).join(' ') || T.tradeInFallback;
     const tradeInDetail = [
-      quote.tradeInYear ? `bouwjaar ${quote.tradeInYear}` : null,
-      quote.tradeInMileage ? `${Number(quote.tradeInMileage).toLocaleString('nl-BE')} km` : null,
+      quote.tradeInYear ? `${T.tradeInYearWord} ${quote.tradeInYear}` : null,
+      quote.tradeInMileage ? `${Number(quote.tradeInMileage).toLocaleString(LOCALE[lang])} km` : null,
     ].filter(Boolean).join(', ');
     doc.font('Inter').fontSize(8).fillColor('#999').text(
-      tradeInDetail ? `Inruilwagen: ${tradeInLabel} (${tradeInDetail})` : `Inruilwagen: ${tradeInLabel}`,
+      tradeInDetail ? `${T.tradeInPrefix}: ${tradeInLabel} (${tradeInDetail})` : `${T.tradeInPrefix}: ${tradeInLabel}`,
       boxX, yPos, { width: boxWidth, align: 'right' }
     );
     yPos += 13;
@@ -554,31 +553,31 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
 
   let rowY = yPos + 14;
   doc.font('Inter').fontSize(9).fillColor('#333');
-  doc.text('Totaalprijs excl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(T.totalExclVat, boxX + boxPadding, rowY, { width: labelWidth });
   doc.text(formatPrice(quote.subtotal), valueX, rowY, { width: valueWidth, align: 'right' });
 
   rowY += 16;
-  doc.text('BTW (21%)', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(T.vat21, boxX + boxPadding, rowY, { width: labelWidth });
   doc.text(formatPrice(quote.vatAmount), valueX, rowY, { width: valueWidth, align: 'right' });
 
   rowY += 20;
   doc.moveTo(boxX + boxPadding, rowY - 7).lineTo(boxX + boxWidth - boxPadding, rowY - 7).stroke('#CBD3DB');
 
   doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
-  doc.text('Totaalprijs incl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(T.totalInclVatLine, boxX + boxPadding, rowY, { width: labelWidth });
   doc.text(formatPrice(quote.totalPrice), valueX, rowY, { width: valueWidth, align: 'right' });
 
   if (hasTradeIn) {
     rowY += 26;
     doc.font('Inter').fontSize(9).fillColor('#333');
-    doc.text('Inruilwaarde (geschat)', boxX + boxPadding, rowY, { width: labelWidth });
+    doc.text(T.tradeInValueLabel, boxX + boxPadding, rowY, { width: labelWidth });
     doc.text('-' + formatPrice(quote.tradeInValue), valueX, rowY, { width: valueWidth, align: 'right' });
 
     rowY += 20;
     doc.moveTo(boxX + boxPadding, rowY - 7).lineTo(boxX + boxWidth - boxPadding, rowY - 7).stroke('#CBD3DB');
 
     doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
-    doc.text('Te betalen na inruil', boxX + boxPadding, rowY, { width: labelWidth });
+    doc.text(T.payableAfterTradeIn, boxX + boxPadding, rowY, { width: labelWidth });
     doc.text(formatPrice(Math.max(0, quote.totalPrice - quote.tradeInValue)), valueX, rowY, { width: valueWidth, align: 'right' });
   }
 
@@ -586,7 +585,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   if (hasTradeIn) {
     yPos += 3;
     doc.font('Inter').fontSize(7).fillColor('#999')
-      .text('Schatting door de verkoper, geen bindende taxatie.', boxX, yPos, { width: boxWidth, align: 'right' });
+      .text(T.tradeInDisclaimer, boxX, yPos, { width: boxWidth, align: 'right' });
     yPos += 9;
   }
   yPos += 12;
@@ -599,22 +598,24 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     const finBoxHeight = 58;
     doc.roundedRect(PAGE_LEFT, yPos, CONTENT_WIDTH, finBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 
-    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('FINANCIERINGSSIMULATIE', PAGE_LEFT + 16, yPos + 12, { characterSpacing: 1 });
+    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text(T.financingHeader, PAGE_LEFT + 16, yPos + 12, { characterSpacing: 1 });
 
     const termColWidth = (CONTENT_WIDTH - 32) / financing.terms.length;
     financing.terms.forEach((term, i) => {
       const x = PAGE_LEFT + 16 + i * termColWidth;
       const monthly = calculateMonthlyPayment(financingPrincipal, financing.annualRatePercent, term);
       doc.font('Inter-Bold').fontSize(12).fillColor('#000').text(formatPrice(monthly), x, yPos + 27, { width: termColWidth });
-      doc.font('Inter').fontSize(8).fillColor('#666').text(`per maand · ${term} mnd`, x, yPos + 43, { width: termColWidth });
+      doc.font('Inter').fontSize(8).fillColor('#666').text(T.perMonth(term), x, yPos + 43, { width: termColWidth });
     });
 
     yPos += finBoxHeight + 4;
-    doc.font('Inter').fontSize(7).fillColor('#999').text(
-      `Indicatieve schatting o.b.v. ${financing.annualRatePercent}% jaarrente, geen bindend aanbod. Neem contact op met onze financieringspartner voor een persoonlijk voorstel.`,
-      PAGE_LEFT, yPos, { width: CONTENT_WIDTH }
-    );
-    yPos += 12;
+    doc.font('Inter').fontSize(7).fillColor('#999');
+    const financingDisclaimerText = T.financingDisclaimer(financing.annualRatePercent);
+    doc.text(financingDisclaimerText, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
+    // Measured rather than a fixed +12 — the French disclaimer (longer than the Dutch
+    // original) can wrap to two lines, and a fixed single-line increment would let the
+    // "Opmerkingen/Remarques" heading drawn right after this overlap it.
+    yPos += doc.heightOfString(financingDisclaimerText, { width: CONTENT_WIDTH }) + 4;
   }
 
   // Notes — if the full block wouldn't fit in what's left of this page, start a fresh
@@ -631,14 +632,11 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     const pageBottomForNotes = doc.page.height - doc.page.margins.bottom;
     if (yPos + notesLabelHeight + notesHeight + 10 > pageBottomForNotes) {
       doc.addPage();
-      doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-      doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
-      doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-      doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+      drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
       yPos = 108;
     }
 
-    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
+    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(T.notesLabel, PAGE_LEFT, yPos);
     yPos += notesLabelHeight;
     doc.fontSize(8).font('Inter').fillColor('#333');
     doc.text(quote.notes, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
@@ -661,56 +659,47 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   const spaceNeededForSignaturesAndFooter = sigHeight + 20 /* gap */ + 28 /* two footer lines */;
   if (yPos + spaceNeededForSignaturesAndFooter > pageBottom) {
     doc.addPage();
-    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
-    doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+    drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
 
     yPos = 220;
     doc.fillColor('#333').fontSize(11).font('Inter')
-      .text('Bedankt voor uw interesse in deze Geely. Onderteken hieronder voor akkoord.', PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
+      .text(T.signatureIntro, PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
     yPos += 40;
   }
   doc.roundedRect(PAGE_LEFT, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
   doc.roundedRect(305, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
   doc.fillColor('#999').fontSize(8).font('Inter-Bold');
-  doc.text('HANDTEKENING VERKOPER', PAGE_LEFT + 12, yPos + 12, { characterSpacing: 0.5 });
-  doc.text('HANDTEKENING KLANT — VOOR AKKOORD', 317, yPos + 12, { width: sigWidth - 24, characterSpacing: 0.5 });
+  doc.text(T.sigSeller, PAGE_LEFT + 12, yPos + 12, { characterSpacing: 0.5 });
+  doc.text(T.sigCustomer, 317, yPos + 12, { width: sigWidth - 24, characterSpacing: 0.5 });
   doc.fontSize(8).font('Inter').fillColor('#999');
   if (quote.createdByName) {
     doc.text(quote.createdByName, PAGE_LEFT + 12, yPos + 32);
   }
-  doc.text('Datum: ____________________', PAGE_LEFT + 12, yPos + sigHeight - 20);
-  doc.text('Datum: ____________________', 317, yPos + sigHeight - 20);
+  doc.text(T.signatureDateLine, PAGE_LEFT + 12, yPos + sigHeight - 20);
+  doc.text(T.signatureDateLine, 317, yPos + sigHeight - 20);
   yPos += sigHeight + 20;
 
   // Footer
   doc.fontSize(8).fillColor('#666');
-  doc.text('Geely Belgium | Professionele Voertuigoplossingen', PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
-  doc.text('Deze offerte is 30 dagen geldig vanaf bovenstaande datum.', PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
+  doc.text(T.footerTagline, PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
+  doc.text(T.footerValidity, PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
 
   // ===================== Standard equipment (one page, two columns) =====================
-  const equipment = getStandardEquipment(vehicle.name, vehicle.model);
+  const equipment = getStandardEquipment(vehicle.name, vehicle.model, lang);
   if (equipment.length > 0) {
     doc.addPage();
-    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Standaarduitrusting', PAGE_LEFT, 40);
-    doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+    drawContinuationHeader(doc, T.equipmentTitle, vehicleLabel, smallLogoWidth);
 
     drawEquipmentColumns(doc, equipment, 108);
   }
 
   // ===================== Technische gegevens & afmetingen (own page, two columns) =====================
-  const techSpecs = getTechnicalSpecs(vehicle.name, vehicle.model);
+  const techSpecs = getTechnicalSpecs(vehicle.name, vehicle.model, lang);
   if (techSpecs) {
     doc.addPage();
-    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Technische gegevens', PAGE_LEFT, 40);
-    doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+    drawContinuationHeader(doc, T.specsTitle, vehicleLabel, smallLogoWidth);
 
-    const sections = Object.entries(SPEC_SECTION_TITLES)
+    const sections = Object.entries(T.specSections)
       .filter(([key]) => techSpecs[key]?.length)
       .map(([key, title]) => ({ title, rows: techSpecs[key] }));
     drawSpecColumns(doc, sections, 108);
@@ -719,11 +708,8 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   // ===================== Garantie & service (own page) =====================
   // T&C's are appended after this on their own page(s) by whatever calls renderQuotePdf next.
   doc.addPage();
-  doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
-  doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Garantie & service', PAGE_LEFT, 40);
-  doc.fontSize(10).font('Inter').fillColor('#666').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
-  doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
-  drawWarrantyTiles(doc, WARRANTY_INFO, 108);
+  drawContinuationHeader(doc, T.warrantyTitle, vehicleLabel, smallLogoWidth);
+  drawWarrantyTiles(doc, getWarrantyInfo(lang), 108);
 
   // Page numbers on every page. Drawing this far down the page would normally trip pdfkit's
   // auto page-break (it would silently insert a fresh blank page and draw there instead) —
@@ -734,7 +720,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     const bottomMargin = doc.page.margins.bottom;
     doc.page.margins.bottom = 0;
     doc.fillColor('#AAA').fontSize(8).font('Inter')
-      .text(`Pagina ${i + 1} van ${pageRange.count}`, PAGE_LEFT, 760, { width: CONTENT_WIDTH, align: 'right', lineBreak: false });
+      .text(T.pageOf(i + 1, pageRange.count), PAGE_LEFT, 760, { width: CONTENT_WIDTH, align: 'right', lineBreak: false });
     doc.page.margins.bottom = bottomMargin;
   }
 
@@ -794,7 +780,7 @@ router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res
     const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.quoteId);
 
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
-    const filename = `Offerte_Geely_${quote.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
+    const filename = `${PDF[resolveLang(quote.language)].filenamePrefix}${quote.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

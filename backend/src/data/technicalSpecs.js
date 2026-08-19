@@ -99,11 +99,12 @@ export const TECHNICAL_SPECS = {
 
 // Returns { drivetrain, chassis, performance, weight, charging, dimensions }, each an array
 // of {label, value}, or null if this vehicle/model isn't in the price list data above (e.g.
-// the Geely E2, which has no published specs yet).
-export function getTechnicalSpecs(vehicleName, model) {
+// the Geely E2, which has no published specs yet). lang='fr' translates each row's label
+// and value for a French quote — see translateSpecLabel/translateSpecValue below.
+export function getTechnicalSpecs(vehicleName, model, lang = 'nl') {
   const data = TECHNICAL_SPECS[vehicleName];
   if (!data) return null;
-  return {
+  const sections = {
     drivetrain: data.drivetrain(model),
     chassis: data.chassis(model),
     performance: data.performance(model),
@@ -111,10 +112,95 @@ export function getTechnicalSpecs(vehicleName, model) {
     charging: data.charging(model),
     dimensions: data.dimensions(model),
   };
+  if (lang !== 'fr') return sections;
+  return Object.fromEntries(
+    Object.entries(sections).map(([key, rows]) => [
+      key,
+      rows.map((row) => ({ label: translateSpecLabel(row.label), value: translateSpecValue(row.value) })),
+    ])
+  );
+}
+
+// Labels are a small closed set shared across both vehicles' spec tables — translated by
+// exact lookup. Falls back to the Dutch original for anything not in the map, rather than
+// dropping the row, so an unrecognized label still renders instead of disappearing.
+// AI-drafted — flag for a native French speaker to review before this reaches a real
+// customer quote.
+const SPEC_LABEL_FR = {
+  'Motorvermogen': 'Puissance moteur',
+  'Koppel': 'Couple',
+  'Aandrijving': 'Type de traction',
+  'Batterijtype': 'Type de batterie',
+  'Capaciteit': 'Capacité',
+  'Rijmodi': 'Modes de conduite',
+  'Carrosserie': 'Carrosserie',
+  'Vering voor': 'Suspension avant',
+  'Vering achter': 'Suspension arrière',
+  'Remmen': 'Freins',
+  'Draaicirkel': 'Rayon de braquage',
+  'Banden': 'Pneus',
+  'Topsnelheid': 'Vitesse maximale',
+  '0–100 km/u': '0–100 km/h',
+  'Verbruik': 'Consommation',
+  'CO₂-uitstoot': 'Émissions de CO₂',
+  'Leeggewicht': 'Poids à vide',
+  'Rijklaar gewicht': 'Poids en ordre de marche',
+  'Aanhanger (ge-/ongeremd)': 'Remorque (freinée/non freinée)',
+  'Max. kogeldruk': 'Charge max. sur attelage',
+  'WLTP-actieradius': 'Autonomie WLTP',
+  'AC-laden 10–100%': 'Charge AC 10–100 %',
+  'Max. AC-vermogen': 'Puissance AC max.',
+  'DC-snelladen 30–80%': 'Charge rapide DC 30–80 %',
+  'Lengte × breedte × hoogte': 'Longueur × largeur × hauteur',
+  'Wielbasis': 'Empattement',
+  'Overhang voor / achter': 'Porte-à-faux avant / arrière',
+  'Kofferbak (min / max)': 'Coffre (min / max)',
+  'Systeemvermogen': 'Puissance système',
+  'Systeem': 'Système',
+  'Verbrandingsmotor': 'Moteur thermique',
+  'Elektromotor': 'Moteur électrique',
+  'Transmissie': 'Transmission',
+  'Batterijcapaciteit': 'Capacité de la batterie',
+  'Brandstoftank': 'Réservoir de carburant',
+  'Brandstofsoort': 'Type de carburant',
+  'Emissienorm': "Norme d'émissions",
+  'Elektrisch bereik (gecombineerd)': 'Autonomie électrique (mixte)',
+  'Elektrisch bereik (stad)': 'Autonomie électrique (ville)',
+  'Totale actieradius': 'Autonomie totale',
+  'AC-laden 25–100%': 'Charge AC 25–100 %',
+  'Kofferbak (rechtop / plat)': 'Coffre (relevé / rabattu)',
+  'Brandstofverbruik': 'Consommation de carburant',
+};
+
+function translateSpecLabel(label) {
+  return SPEC_LABEL_FR[label] || label;
+}
+
+// Values are mostly numbers + units shared unchanged between nl-BE and fr-BE (kg, km, Nm,
+// kW, mm, s, g/km, L/100km, decimal commas). Only the handful of Dutch words/unit
+// abbreviations mixed into them need translating — exact phrases first (safest), then a
+// few word-boundary unit swaps ('pk'->'ch', 'km/u'->'km/h', a trailing hour 'u'->'h',
+// 'liter'->'litres', 'cilinders'->'cylindres') for whatever numeric value they're attached to.
+const SPEC_VALUE_EXACT_FR = {
+  'Niet mogelijk': 'Non disponible',
+  'Voorwielaandrijving': 'Traction avant',
+  'Voor geventileerd / achter massief': "Ventilés à l'avant / pleins à l'arrière",
+  'SUV · 5 zitplaatsen': 'SUV · 5 places',
+};
+
+function translateSpecValue(value) {
+  if (typeof value !== 'string') return value;
+  if (SPEC_VALUE_EXACT_FR[value]) return SPEC_VALUE_EXACT_FR[value];
+  return value
+    .replace(/\bpk\b/g, 'ch')
+    .replace(/\bkm\/u\b/g, 'km/h')
+    .replace(/(\d)\s+u\b/g, '$1 h')
+    .replace(/\bliter\b/g, 'litres')
+    .replace(/\bcilinders\b/g, 'cylindres');
 }
 
 // Identical across the range per both price lists (page 8 of each).
-export const WARRANTY_INFO = [
+const WARRANTY_INFO_NL = [
   {
     title: '8 jaar',
     subtitle: 'Fabrieksgarantie',
@@ -131,3 +217,25 @@ export const WARRANTY_INFO = [
     text: 'Onze pechhulp staat in heel Europa elke dag, dag en nacht, voor u klaar. Gratis: 0800-76181.',
   },
 ];
+
+const WARRANTY_INFO_FR = [
+  {
+    title: '8 ans',
+    subtitle: 'Garantie constructeur',
+    text: 'Garantie constructeur standard de 8 ans (ou 200 000 km). Garantie carrosserie de 12 ans en complément.',
+  },
+  {
+    title: '8 ans',
+    subtitle: 'Garantie batterie',
+    text: "Garantie batterie de 8 ans ou 200 000 km, avec un état de santé minimal garanti de 70 %.",
+  },
+  {
+    title: '24/7',
+    subtitle: 'Assistance dépannage en Europe',
+    text: "Notre assistance dépannage est à votre disposition partout en Europe, jour et nuit. Gratuit : 0800-76181.",
+  },
+];
+
+export function getWarrantyInfo(lang = 'nl') {
+  return lang === 'fr' ? WARRANTY_INFO_FR : WARRANTY_INFO_NL;
+}

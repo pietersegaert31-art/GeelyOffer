@@ -378,6 +378,10 @@ export function initializeDatabase() {
     // "days since sent" for the follow-up reminder stays meaningful instead of resetting
     // every time a rep fixes a typo in the notes.
     addColumnIfMissing(database, 'quotes', 'sentAt', 'DATETIME');
+    // Language the customer-facing PDF/e-mail is generated in ('nl' or 'fr') — chosen by
+    // the rep per quote based on the customer's preference. The internal app UI itself
+    // stays Dutch-only for staff regardless of this value.
+    addColumnIfMissing(database, 'quotes', 'language', "TEXT DEFAULT 'nl'");
 
     // Quote Items (accessories/options) table
     database.run(`

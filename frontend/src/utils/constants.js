@@ -43,3 +43,12 @@ export const DISCOUNT_APPROVAL_BADGE_CLASS = {
 // as mutually exclusive in AccessoriesSelector (picking one automatically clears any
 // other selection in the same category), instead of independent checkboxes.
 export const SINGLE_SELECT_CATEGORIES = ['exterior']
+
+// Language the customer-facing PDF and e-mail are generated in — see
+// backend/src/i18n/translate.js. The app UI itself stays Dutch regardless of this choice.
+export const QUOTE_LANGUAGES = ['nl', 'fr']
+
+export const QUOTE_LANGUAGE_LABELS = {
+  nl: 'Nederlands',
+  fr: 'Français',
+}

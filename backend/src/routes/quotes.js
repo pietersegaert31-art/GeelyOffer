@@ -7,6 +7,9 @@ import { requireAuth, requireManager, blockPendingPasswordChange } from '../midd
 import { loadQuoteForPdf, generateQuotePdfBuffer } from './pdf.js';
 import { sendQuoteEmail } from '../utils/email.js';
 import { logAudit } from '../utils/auditLog.js';
+import { PDF, resolveLang } from '../i18n/translate.js';
+
+const QUOTE_LANGUAGES = ['nl', 'fr'];
 
 const router = express.Router();
 router.use(requireAuth, blockPendingPasswordChange);
@@ -358,6 +361,7 @@ router.post('/', async (req, res) => {
       discountValue = 0,
       accessories = [],
       notes,
+      language = 'nl',
       tradeInEnabled = false,
       tradeInMake,
       tradeInModel,
@@ -371,6 +375,9 @@ router.post('/', async (req, res) => {
     }
     if (!['particulier', 'bedrijf'].includes(customerType)) {
       return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
+    }
+    if (!QUOTE_LANGUAGES.includes(language)) {
+      return res.status(400).json({ error: `language must be one of: ${QUOTE_LANGUAGES.join(', ')}` });
     }
     if (tradeInEnabled && (!Number.isFinite(tradeInValue) || tradeInValue < 0)) {
       return res.status(400).json({ error: 'tradeInValue must be a non-negative number' });
@@ -400,8 +407,8 @@ router.post('/', async (req, res) => {
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         customerName,
@@ -426,6 +433,7 @@ router.post('/', async (req, res) => {
         pricing.vat,
         pricing.total,
         notes || null,
+        language,
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days expiry
         req.user.id,
         req.user.name,
@@ -492,8 +500,8 @@ router.post('/:id/duplicate', async (req, res) => {
     const branch = await resolveActorBranch(req.user);
 
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, language, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
       [
         id,
         `${source.customerName} (kopie)`,
@@ -518,6 +526,7 @@ router.post('/:id/duplicate', async (req, res) => {
         source.vatAmount,
         source.totalPrice,
         source.notes,
+        source.language || 'nl',
         new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         req.user.id,
         req.user.name,
@@ -575,8 +584,9 @@ router.post('/:id/send-email', async (req, res) => {
       vehicleLabel: `${vehicle.name} ${vehicle.model}`,
       salespersonName: quote.createdByName,
       pdfBuffer,
-      filename: `Offerte_Geely_${quote.customerName.replace(/\s+/g, '_')}.pdf`,
+      filename: `${PDF[resolveLang(quote.language)].filenamePrefix}${quote.customerName.replace(/\s+/g, '_')}.pdf`,
       acceptUrl,
+      language: quote.language,
     });
 
     await runAsync(
@@ -641,7 +651,7 @@ router.put('/:id', async (req, res) => {
       customerName, customerEmail, customerPhone, customerCompany,
       customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity,
       tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue,
-      notes, status,
+      notes, status, language,
     } = req.body;
     const quoteId = req.params.id;
 
@@ -655,6 +665,9 @@ router.put('/:id', async (req, res) => {
     }
     if (customerType !== undefined && !['particulier', 'bedrijf'].includes(customerType)) {
       return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
+    }
+    if (language !== undefined && !QUOTE_LANGUAGES.includes(language)) {
+      return res.status(400).json({ error: `language must be one of: ${QUOTE_LANGUAGES.join(', ')}` });
     }
     const resolvedCustomerType = customerType !== undefined ? customerType : quote.customerType;
     const resolvedTradeInEnabled = tradeInEnabled !== undefined ? tradeInEnabled : !!quote.tradeInEnabled;
@@ -705,7 +718,7 @@ router.put('/:id', async (req, res) => {
     const sentAt = finalStatus === 'sent' && quote.status !== 'sent' ? new Date().toISOString() : quote.sentAt;
 
     await runAsync(
-      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, tradeInEnabled = ?, tradeInMake = ?, tradeInModel = ?, tradeInYear = ?, tradeInMileage = ?, tradeInValue = ?, notes = ?, status = ?, sentAt = ?, updatedAt = CURRENT_TIMESTAMP
+      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, tradeInEnabled = ?, tradeInMake = ?, tradeInModel = ?, tradeInYear = ?, tradeInMileage = ?, tradeInValue = ?, notes = ?, language = ?, status = ?, sentAt = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         resolvedDiscountType,
@@ -737,6 +750,7 @@ router.put('/:id', async (req, res) => {
         resolvedTradeInEnabled ? (tradeInMileage !== undefined ? tradeInMileage : quote.tradeInMileage) : null,
         resolvedTradeInEnabled ? resolvedTradeInValue : 0,
         notes !== undefined ? notes : quote.notes,
+        language !== undefined ? language : quote.language,
         finalStatus,
         sentAt,
         quoteId,
