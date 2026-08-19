@@ -3,6 +3,7 @@ import { api, formatPrice, exclVat } from '../utils/api'
 import {
   DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
+  SINGLE_SELECT_CATEGORIES,
 } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import VehicleSelector from './VehicleSelector'
@@ -127,6 +128,21 @@ function QuoteBuilder({ onQuoteCreated }) {
       calculatePricing()
     }
   }, [selectedVariant, selectedAccessories, discountType, discountValue])
+
+  // Mandatory accessories (e.g. the delivery pack) are always part of the quote — add
+  // any that apply to the selected model and aren't already in the list, so the live
+  // price preview and the step 4 overview both reflect them without the user having to
+  // do anything. The backend also injects these independently on save, so this is about
+  // an accurate live preview, not the source of truth for what actually gets billed.
+  useEffect(() => {
+    if (!selectedModel || accessories.length === 0) return
+    const mandatory = accessories.filter((a) => a.mandatory && a.vehicleModels?.includes(selectedModel))
+    if (mandatory.length === 0) return
+    setSelectedAccessories((prev) => {
+      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
+      return missing.length ? [...prev, ...missing] : prev
+    })
+  }, [selectedModel, accessories])
 
   const loadData = async () => {
     try {
@@ -318,8 +334,14 @@ function QuoteBuilder({ onQuoteCreated }) {
                   selectedAccessories={selectedAccessories}
                   vehicleModel={selectedModel}
                   onSelectAccessory={(acc) => {
-                    if (selectedAccessories.find(a => a.id === acc.id)) {
+                    if (acc.mandatory) return
+                    const alreadySelected = selectedAccessories.find(a => a.id === acc.id)
+                    if (alreadySelected) {
                       setSelectedAccessories(selectedAccessories.filter(a => a.id !== acc.id))
+                    } else if (SINGLE_SELECT_CATEGORIES.includes(acc.category)) {
+                      // Only one option per single-select category (e.g. paint color) —
+                      // picking a new one replaces whatever was selected in that category.
+                      setSelectedAccessories([...selectedAccessories.filter(a => a.category !== acc.category), acc])
                     } else {
                       setSelectedAccessories([...selectedAccessories, acc])
                     }

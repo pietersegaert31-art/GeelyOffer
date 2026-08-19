@@ -55,6 +55,11 @@ function normalizeVatNumber(raw) {
 // price they liked (e.g. a real accessory relabeled or repriced at submission time).
 // Only `quantity` is trusted from the client, and even that is clamped to a sane
 // positive integer.
+// Mirrors frontend/src/utils/constants.js SINGLE_SELECT_CATEGORIES — a car can only
+// have one paint color, so this is checked here too rather than trusting the UI alone
+// to enforce it (the UI can have bugs, and this endpoint can be called directly).
+const SINGLE_SELECT_CATEGORIES = ['exterior'];
+
 async function resolveAccessories(items) {
   if (!Array.isArray(items) || items.length === 0) return [];
   const resolved = [];
@@ -71,9 +76,39 @@ async function resolveAccessories(items) {
       throw error;
     }
     const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
-    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity });
+    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category });
   }
+
+  for (const category of SINGLE_SELECT_CATEGORIES) {
+    const picked = resolved.filter((r) => r.category === category);
+    if (picked.length > 1) {
+      const error = new Error(`Er kan maar één optie uit de categorie "${category}" gekozen worden (gekozen: ${picked.map((p) => p.name).join(', ')})`);
+      error.status = 400;
+      throw error;
+    }
+  }
+
   return resolved;
+}
+
+// Mandatory accessories (e.g. the delivery pack fee) are added here — server-side,
+// unconditionally — rather than relying on the client to include them. The quote
+// builder never lets a user deselect one, but resolving them independently of whatever
+// the client sent means a quote is correctly priced even if the frontend has a bug, or
+// the request was crafted by hand to omit it.
+async function resolveMandatoryAccessories(vehicleName) {
+  const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
+  return rows
+    .filter((row) => JSON.parse(row.vehicleModels || '[]').includes(vehicleName))
+    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1 }));
+}
+
+// Merges resolved client accessories with the vehicle's mandatory ones, the client's
+// copy of a mandatory item (it shouldn't send one, but a hand-crafted request might)
+// losing out to the authoritative one so it's never duplicated or priced differently.
+function mergeMandatoryAccessories(resolvedAccessories, mandatoryAccessories) {
+  const mandatoryIds = new Set(mandatoryAccessories.map((a) => a.id));
+  return [...resolvedAccessories.filter((a) => !mandatoryIds.has(a.id)), ...mandatoryAccessories];
 }
 
 function csvEscape(value) {
@@ -321,7 +356,8 @@ router.post('/', async (req, res) => {
     const id = uuidv4();
     const basePrice = vehicle.basePrice;
 
-    const resolvedAccessories = await resolveAccessories(accessories);
+    const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
+    const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories), mandatoryAccessories);
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
 
     const validationError = validatePricingInputs(basePrice, accessoriesTotal, discountType, discountValue);
@@ -590,7 +626,12 @@ router.put('/:id', async (req, res) => {
     }
 
     const basePrice = quote.basePrice;
-    const resolvedAccessories = accessories ? await resolveAccessories(accessories) : null;
+    let resolvedAccessories = null;
+    if (accessories) {
+      const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
+      const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
+      resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories), mandatoryAccessories);
+    }
     const accessoriesTotal = resolvedAccessories
       ? resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0)
       : quote.accessories;

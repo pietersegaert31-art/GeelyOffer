@@ -76,6 +76,42 @@ function seedGeelyE2IfMissing(database) {
   });
 }
 
+// Runs on every boot (same reasoning as seedGeelyE2IfMissing) so this mandatory fee
+// reaches databases that were already seeded before it existed. Price is entered as
+// €784.30 excl. BTW by the business — stored incl. 21% BTW (€949.00) like every other
+// price in this app, so it adds cleanly to basePrice/accessoriesTotal without special-
+// casing the VAT math anywhere else.
+function seedDeliveryPackIfMissing(database) {
+  const DELIVERY_PACK_PRICE_INCL_VAT = 949.00;
+  const packs = [
+    { id: 'delivery-pack-e5', vehicleModel: 'Geely E5' },
+    { id: 'delivery-pack-emi', vehicleModel: 'Starray EM-i' },
+  ];
+
+  packs.forEach(({ id, vehicleModel }) => {
+    database.get('SELECT id FROM accessories WHERE id = ?', [id], (err, row) => {
+      if (err) {
+        console.error(`Error checking for ${id} seed row:`, err);
+        return;
+      }
+      if (row) return;
+
+      database.run(
+        `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory)
+         VALUES (?, ?, ?, ?, ?, 1, 1)`,
+        [id, 'Delivery Pack', DELIVERY_PACK_PRICE_INCL_VAT, 'verplicht', JSON.stringify([vehicleModel])],
+        (insertErr) => {
+          if (insertErr) {
+            console.error(`Failed to seed ${id}:`, insertErr.message);
+            return;
+          }
+          console.log(`✓ Added mandatory Delivery Pack for ${vehicleModel}`);
+        }
+      );
+    });
+  });
+}
+
 function seedBranchesIfEmpty(database) {
   database.get('SELECT COUNT(*) AS count FROM branches', (err, row) => {
     if (err) {
@@ -105,14 +141,33 @@ function seedAccessoriesIfEmpty(database) {
     if (row.count > 0) return;
 
     const insertAccessory = database.prepare(
-      `INSERT INTO accessories (id, name, price, category, vehicleModels, active)
-       VALUES (?, ?, ?, ?, ?, 1)`
+      `INSERT INTO accessories (id, name, price, category, vehicleModels, active, colorHex)
+       VALUES (?, ?, ?, ?, ?, 1, ?)`
     );
     STANDARD_ACCESSORIES.forEach((acc) => {
-      insertAccessory.run(acc.id, acc.name, acc.price, acc.category, JSON.stringify(acc.vehicleModels || []));
+      insertAccessory.run(acc.id, acc.name, acc.price, acc.category, JSON.stringify(acc.vehicleModels || []), acc.colorHex || null);
     });
     insertAccessory.finalize();
     console.log('✓ Seeded default accessories');
+  });
+}
+
+// Runs on every boot to correct/backfill data on databases that were already seeded
+// before this data was verified against Geely's official color lineup: "Metallic: Moss
+// Green" was never a real Geely E5 color (confirmed via Geely's official color lineup —
+// the real 5th color is Snowy White) and colorHex swatches didn't exist yet. Only
+// touches rows still at their original seeded value, so it never overwrites something
+// an admin has since edited by hand.
+function fixAccessoryColorDataIfStale(database) {
+  database.run(
+    `UPDATE accessories SET name = 'Metallic: Snowy White' WHERE id = 'e5-paint-moss' AND name = 'Metallic: Moss Green'`
+  );
+  STANDARD_ACCESSORIES.forEach((acc) => {
+    if (!acc.colorHex) return;
+    database.run(
+      `UPDATE accessories SET colorHex = ? WHERE id = ? AND colorHex IS NULL`,
+      [acc.colorHex, acc.id]
+    );
   });
 }
 
@@ -222,6 +277,15 @@ export function initializeDatabase() {
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // A mandatory accessory (e.g. a delivery pack fee) is always added to a matching
+    // quote server-side — see resolveMandatoryAccessories() in routes/quotes.js — and
+    // shown on the quote builder as a checked, non-removable line rather than an
+    // optional one.
+    addColumnIfMissing(database, 'accessories', 'mandatory', 'BOOLEAN DEFAULT 0');
+    // Representative swatch color for paint/color options (nullable — only meaningful
+    // for color-style accessories), shown as a small preview circle so a customer gets
+    // an idea of the shade without needing to see the physical car.
+    addColumnIfMissing(database, 'accessories', 'colorHex', 'TEXT');
 
     // Quotes table
     database.run(`
@@ -532,6 +596,8 @@ export function initializeDatabase() {
     seedGeelyE2IfMissing(database);
     seedBranchesIfEmpty(database);
     seedAccessoriesIfEmpty(database);
+    fixAccessoryColorDataIfStale(database);
+    seedDeliveryPackIfMissing(database);
     bootstrapAdminIfNoUsers(database);
 
     console.log('✓ Database tables initialized');

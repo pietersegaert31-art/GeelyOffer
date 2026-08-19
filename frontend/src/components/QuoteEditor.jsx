@@ -4,6 +4,7 @@ import {
   QUOTE_STATUSES, STATUS_LABELS, DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
   DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS,
+  SINGLE_SELECT_CATEGORIES,
 } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import CustomerForm from './CustomerForm'
@@ -117,6 +118,19 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
       .catch((err) => setError('Kon prijs niet berekenen: ' + err.message))
   }, [vehicle, selectedAccessories, discountType, discountValue])
 
+  // Same reasoning as QuoteBuilder.jsx: keeps the live preview accurate for a quote that
+  // predates this feature (or was edited before the mandatory item existed). The backend
+  // injects it independently on save regardless of what's sent here.
+  useEffect(() => {
+    if (!vehicle || accessoriesCatalog.length === 0) return
+    const mandatory = accessoriesCatalog.filter((a) => a.mandatory && a.vehicleModels?.includes(vehicle.name))
+    if (mandatory.length === 0) return
+    setSelectedAccessories((prev) => {
+      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
+      return missing.length ? [...prev, ...missing] : prev
+    })
+  }, [vehicle, accessoriesCatalog])
+
   const handleSave = async () => {
     if (!isCustomerInfoComplete(customerInfo)) {
       setError('Vul alle verplichte klantgegevens in')
@@ -174,9 +188,14 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
                   selectedAccessories={selectedAccessories}
                   vehicleModel={vehicle.name}
                   onSelectAccessory={(acc) => {
-                    setSelectedAccessories((prev) =>
-                      prev.some((a) => a.id === acc.id) ? prev.filter((a) => a.id !== acc.id) : [...prev, acc]
-                    )
+                    if (acc.mandatory) return
+                    setSelectedAccessories((prev) => {
+                      if (prev.some((a) => a.id === acc.id)) return prev.filter((a) => a.id !== acc.id)
+                      if (SINGLE_SELECT_CATEGORIES.includes(acc.category)) {
+                        return [...prev.filter((a) => a.category !== acc.category), acc]
+                      }
+                      return [...prev, acc]
+                    })
                   }}
                 />
               )}

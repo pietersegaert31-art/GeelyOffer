@@ -15,7 +15,24 @@ function toPublicAccessory(row) {
     category: row.category,
     vehicleModels: JSON.parse(row.vehicleModels || '[]'),
     active: !!row.active,
+    mandatory: !!row.mandatory,
+    colorHex: row.colorHex || null,
   };
+}
+
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+
+// Empty/undefined clears it (not every accessory is a color); anything non-empty must
+// be a real 6-digit hex so a bad value can't silently break the swatch's CSS.
+function normalizeColorHex(value) {
+  if (value === undefined) return undefined;
+  if (!value) return null;
+  if (!HEX_COLOR_PATTERN.test(value)) {
+    const error = new Error('colorHex moet een geldige hex-kleur zijn, bv. #A1B2C3');
+    error.status = 400;
+    throw error;
+  }
+  return value;
 }
 
 // List all active accessories (used by the quote builder)
@@ -36,15 +53,15 @@ router.get('/', async (req, res) => {
 // Create a new accessory (admin or sales manager)
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { name, price, category, vehicleModels = [] } = req.body;
+    const { name, price, category, vehicleModels = [], mandatory = false, colorHex } = req.body;
     if (!name || !category || !Number.isFinite(price) || price < 0) {
       return res.status(400).json({ error: 'name, category en een geldige price zijn verplicht' });
     }
 
     const id = uuidv4();
     await runAsync(
-      'INSERT INTO accessories (id, name, price, category, vehicleModels, active) VALUES (?, ?, ?, ?, ?, 1)',
-      [id, name, price, category, JSON.stringify(vehicleModels)]
+      'INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, colorHex) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
+      [id, name, price, category, JSON.stringify(vehicleModels), mandatory ? 1 : 0, normalizeColorHex(colorHex) ?? null]
     );
 
     const row = await getAsync('SELECT * FROM accessories WHERE id = ?', [id]);
@@ -57,7 +74,7 @@ router.post('/', requireManager, async (req, res) => {
     });
     res.status(201).json(toPublicAccessory(row));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -69,19 +86,22 @@ router.put('/:id', requireManager, async (req, res) => {
       return res.status(404).json({ error: 'Optie niet gevonden' });
     }
 
-    const { name, price, category, vehicleModels, active } = req.body;
+    const { name, price, category, vehicleModels, active, mandatory, colorHex } = req.body;
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) {
       return res.status(400).json({ error: 'price moet een niet-negatief getal zijn' });
     }
+    const normalizedColorHex = normalizeColorHex(colorHex);
 
     await runAsync(
-      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, active = ? WHERE id = ?',
+      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, active = ?, mandatory = ?, colorHex = ? WHERE id = ?',
       [
         name ?? existing.name,
         price ?? existing.price,
         category ?? existing.category,
         vehicleModels ? JSON.stringify(vehicleModels) : existing.vehicleModels,
         active === undefined ? existing.active : (active ? 1 : 0),
+        mandatory === undefined ? existing.mandatory : (mandatory ? 1 : 0),
+        normalizedColorHex === undefined ? existing.colorHex : normalizedColorHex,
         req.params.id,
       ]
     );
@@ -99,7 +119,7 @@ router.put('/:id', requireManager, async (req, res) => {
     const updated = await getAsync('SELECT * FROM accessories WHERE id = ?', [req.params.id]);
     res.json(toPublicAccessory(updated));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 

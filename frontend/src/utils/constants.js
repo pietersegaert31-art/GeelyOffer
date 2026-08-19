@@ -38,3 +38,8 @@ export const DISCOUNT_APPROVAL_BADGE_CLASS = {
   approved: 'accepted',
   rejected: 'declined',
 }
+
+// A car can only have one paint color at a time — categories listed here are rendered
+// as mutually exclusive in AccessoriesSelector (picking one automatically clears any
+// other selection in the same category), instead of independent checkboxes.
+export const SINGLE_SELECT_CATEGORIES = ['exterior']

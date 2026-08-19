@@ -574,6 +574,21 @@ textarea {
   border-color: var(--text);
 }
 
+.option-item-locked {
+  cursor: default;
+}
+
+.option-item-locked input {
+  cursor: default;
+}
+
+.option-mandatory-note {
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .option-category {
   margin-bottom: 18px;
 }
@@ -589,6 +604,22 @@ textarea {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.option-category-hint {
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.option-color-swatch {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
 }
 
 .option-category-list {

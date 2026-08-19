@@ -4,8 +4,9 @@ import { api, formatPrice } from '../utils/api'
 function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
   const [form, setForm] = useState(accessory ? {
     name: accessory.name, price: accessory.price, category: accessory.category,
-    vehicleModels: accessory.vehicleModels, active: accessory.active,
-  } : { name: '', price: '', category: '', vehicleModels: [], active: true })
+    vehicleModels: accessory.vehicleModels, active: accessory.active, mandatory: accessory.mandatory,
+    colorHex: accessory.colorHex || '',
+  } : { name: '', price: '', category: '', vehicleModels: [], active: true, mandatory: false, colorHex: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -31,6 +32,8 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
         category: form.category.toLowerCase(),
         vehicleModels: form.vehicleModels,
         active: form.active,
+        mandatory: form.mandatory,
+        colorHex: form.colorHex || null,
       }
       if (accessory) {
         await api.updateAccessory(accessory.id, payload)
@@ -69,6 +72,27 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
             </div>
           </div>
           <div className="form-group">
+            <label>Kleurstaal (optioneel, voor kleuropties)</label>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <input
+                type="color"
+                value={form.colorHex || '#ffffff'}
+                onChange={(e) => set('colorHex', e.target.value)}
+                style={{ width: '44px', height: '36px', padding: '2px', cursor: 'pointer', flexShrink: 0 }}
+              />
+              <input
+                type="text"
+                value={form.colorHex}
+                onChange={(e) => set('colorHex', e.target.value)}
+                placeholder="#A1B2C3"
+                style={{ flex: 1 }}
+              />
+              {form.colorHex && (
+                <button type="button" className="btn btn-outline" onClick={() => set('colorHex', '')}>Wis</button>
+              )}
+            </div>
+          </div>
+          <div className="form-group">
             <label>Beschikbaar voor</label>
             <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
               {vehicleNames.map((name) => (
@@ -83,6 +107,12 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
               <input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} style={{ width: '16px', height: '16px' }} />
               Actief (selecteerbaar bij nieuwe offertes)
+            </label>
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
+              <input type="checkbox" checked={form.mandatory} onChange={(e) => set('mandatory', e.target.checked)} style={{ width: '16px', height: '16px' }} />
+              Verplicht (wordt altijd toegevoegd, klant kan ze niet uitvinken)
             </label>
           </div>
           <div className="btn-group">
@@ -155,11 +185,26 @@ function AdminAccessories() {
             <tbody>
               {accessories.map((acc) => (
                 <tr key={acc.id}>
-                  <td style={{ fontWeight: 700 }}>{acc.name}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    {acc.colorHex && (
+                      <span
+                        style={{
+                          display: 'inline-block', width: '14px', height: '14px', borderRadius: '50%',
+                          border: '1px solid var(--border-strong)', marginRight: '8px', verticalAlign: 'middle',
+                          backgroundColor: acc.colorHex,
+                        }}
+                        title={acc.colorHex}
+                      />
+                    )}
+                    {acc.name}
+                  </td>
                   <td style={{ textTransform: 'capitalize' }}>{acc.category}</td>
                   <td>{formatPrice(acc.price)}</td>
                   <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{acc.vehicleModels.join(', ') || 'Alle modellen'}</td>
-                  <td><span className={`badge ${acc.active ? 'sent' : 'draft'}`}>{acc.active ? 'Actief' : 'Inactief'}</span></td>
+                  <td>
+                    <span className={`badge ${acc.active ? 'sent' : 'draft'}`}>{acc.active ? 'Actief' : 'Inactief'}</span>
+                    {acc.mandatory && <span className="badge declined" style={{ marginLeft: '6px' }}>Verplicht</span>}
+                  </td>
                   <td>
                     <div className="row-actions">
                       <button className="btn btn-outline" onClick={() => setEditing(acc)}>Bewerken</button>
