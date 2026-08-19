@@ -7,6 +7,9 @@ import QuoteEditor from './QuoteEditor'
 const LIMIT = 20
 const EXPIRY_WARNING_DAYS = 7
 const OPEN_STATUSES = ['draft', 'sent']
+// Mirrors backend/src/routes/quotes.js's FOLLOWUP_REMINDER_DAYS exactly, so the badge
+// shown here always agrees with what the "Vervolg nodig" filter actually returns.
+const FOLLOWUP_REMINDER_DAYS = 5
 
 function expiryInfo(quote) {
   if (!OPEN_STATUSES.includes(quote.status) || !quote.expiresAt) return null
@@ -14,6 +17,12 @@ function expiryInfo(quote) {
   if (diffDays < 0) return { label: 'Verlopen', tone: 'expired' }
   if (diffDays <= EXPIRY_WARNING_DAYS) return { label: diffDays === 0 ? 'Verloopt vandaag' : `Verloopt over ${diffDays}d`, tone: 'soon' }
   return { label: formatDate(quote.expiresAt), tone: 'normal' }
+}
+
+function needsFollowupNow(quote) {
+  if (quote.status !== 'sent' || !quote.sentAt) return false
+  const daysSinceSent = (new Date() - new Date(quote.sentAt)) / (24 * 60 * 60 * 1000)
+  return daysSinceSent >= FOLLOWUP_REMINDER_DAYS
 }
 
 function QuoteList() {
@@ -27,6 +36,7 @@ function QuoteList() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [expiringSoon, setExpiringSoon] = useState(false)
+  const [needsFollowup, setNeedsFollowup] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busyIds, setBusyIds] = useState([])
   const [selectedIds, setSelectedIds] = useState([])
@@ -37,7 +47,7 @@ function QuoteList() {
     try {
       setLoading(true)
       setError('')
-      const data = await api.getQuotes({ search, status, expiringSoon, page, limit: LIMIT })
+      const data = await api.getQuotes({ search, status, expiringSoon, needsFollowup, page, limit: LIMIT })
       setQuotes(data.quotes)
       setTotal(data.total)
       setTotalPages(data.totalPages)
@@ -49,7 +59,7 @@ function QuoteList() {
     }
   }
 
-  useEffect(() => { load() }, [page, status, search, expiringSoon]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [page, status, search, expiringSoon, needsFollowup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce the free-text search so we don't fire a request per keystroke
   useEffect(() => {
@@ -166,8 +176,8 @@ function QuoteList() {
             value={status}
             onChange={(e) => { setStatus(e.target.value); setPage(1) }}
             style={{ maxWidth: '200px' }}
-            disabled={expiringSoon}
-            title={expiringSoon ? 'Niet beschikbaar terwijl "Verloopt binnenkort" actief is' : undefined}
+            disabled={expiringSoon || needsFollowup}
+            title={expiringSoon || needsFollowup ? 'Niet beschikbaar terwijl een andere filter actief is' : undefined}
           >
             <option value="">Alle statussen</option>
             {QUOTE_STATUSES.map((s) => (
@@ -181,11 +191,24 @@ function QuoteList() {
               // Expiring-soon only ever matches draft/sent quotes, so an explicit status
               // filter for e.g. "accepted" would silently AND together into zero results.
               setExpiringSoon((prev) => !prev)
+              setNeedsFollowup(false)
               setStatus('')
               setPage(1)
             }}
           >
             Verloopt binnenkort
+          </button>
+          <button
+            type="button"
+            className={`nav-pill ${needsFollowup ? 'active' : ''}`}
+            onClick={() => {
+              setNeedsFollowup((prev) => !prev)
+              setExpiringSoon(false)
+              setStatus('')
+              setPage(1)
+            }}
+          >
+            Vervolg nodig
           </button>
         </div>
 
@@ -235,6 +258,11 @@ function QuoteList() {
                       {quote.acceptedByName && (
                         <div style={{ marginTop: '5px', fontSize: '0.72rem', color: 'var(--muted)' }}>
                           Online bevestigd door {quote.acceptedByName}
+                        </div>
+                      )}
+                      {needsFollowupNow(quote) && (
+                        <div style={{ marginTop: '5px' }}>
+                          <span className="badge expiry-soon">Vervolg nodig</span>
                         </div>
                       )}
                       {DISCOUNT_APPROVAL_STATUS_LABELS[quote.discountApprovalStatus] && (

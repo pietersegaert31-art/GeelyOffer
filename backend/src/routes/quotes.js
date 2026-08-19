@@ -14,6 +14,9 @@ router.use(requireAuth, blockPendingPasswordChange);
 const QUOTE_STATUSES = ['draft', 'sent', 'accepted', 'declined'];
 const OPEN_STATUSES = ['draft', 'sent'];
 const EXPIRY_WARNING_DAYS = 7;
+// A 'sent' quote the customer hasn't responded to in this many days surfaces as
+// needing a follow-up call — mirrors EXPIRY_WARNING_DAYS's role for the expiry filter.
+const FOLLOWUP_REMINDER_DAYS = 5;
 // Exported so the public quote-acceptance route (routes/quoteAcceptance.js) applies the
 // exact same rule: a customer can't click "accept" on a discount that hasn't cleared
 // manager sign-off internally yet.
@@ -60,7 +63,13 @@ function normalizeVatNumber(raw) {
 // to enforce it (the UI can have bugs, and this endpoint can be called directly).
 const SINGLE_SELECT_CATEGORIES = ['exterior'];
 
-async function resolveAccessories(items) {
+// vehicleName scopes accessories to the quote's actual vehicle — without this, a request
+// (crafted by hand, or a frontend bug) could attach an accessory that only makes sense
+// for a different model. This is also what makes the delivery-pack duplication bug
+// impossible even if something upstream misbehaves again: two accessories can share a
+// name across models, but this check keys off the accessory's own `vehicleModels`, not
+// a name match, so a mismatched one is always rejected here regardless of how it arrived.
+async function resolveAccessories(items, vehicleName) {
   if (!Array.isArray(items) || items.length === 0) return [];
   const resolved = [];
   for (const item of items) {
@@ -75,17 +84,14 @@ async function resolveAccessories(items) {
       error.status = 400;
       throw error;
     }
-    const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
-    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category });
-  }
-
-  for (const category of SINGLE_SELECT_CATEGORIES) {
-    const picked = resolved.filter((r) => r.category === category);
-    if (picked.length > 1) {
-      const error = new Error(`Er kan maar één optie uit de categorie "${category}" gekozen worden (gekozen: ${picked.map((p) => p.name).join(', ')})`);
+    const applicableModels = JSON.parse(accessory.vehicleModels || '[]');
+    if (applicableModels.length > 0 && vehicleName && !applicableModels.includes(vehicleName)) {
+      const error = new Error(`Optie "${accessory.name}" is niet beschikbaar voor dit voertuig`);
       error.status = 400;
       throw error;
     }
+    const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category });
   }
 
   return resolved;
@@ -100,15 +106,30 @@ async function resolveMandatoryAccessories(vehicleName) {
   const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
   return rows
     .filter((row) => JSON.parse(row.vehicleModels || '[]').includes(vehicleName))
-    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1 }));
+    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category }));
 }
 
 // Merges resolved client accessories with the vehicle's mandatory ones, the client's
 // copy of a mandatory item (it shouldn't send one, but a hand-crafted request might)
 // losing out to the authoritative one so it's never duplicated or priced differently.
+// The single-select check runs on this final merged list, not just the client-submitted
+// half, so it stays correct even if a future mandatory accessory is ever configured into
+// a single-select category (e.g. 'exterior') — it can't quietly slip past validation just
+// because it arrived via the mandatory path instead of the client's own selection.
 function mergeMandatoryAccessories(resolvedAccessories, mandatoryAccessories) {
   const mandatoryIds = new Set(mandatoryAccessories.map((a) => a.id));
-  return [...resolvedAccessories.filter((a) => !mandatoryIds.has(a.id)), ...mandatoryAccessories];
+  const merged = [...resolvedAccessories.filter((a) => !mandatoryIds.has(a.id)), ...mandatoryAccessories];
+
+  for (const category of SINGLE_SELECT_CATEGORIES) {
+    const picked = merged.filter((a) => a.category === category);
+    if (picked.length > 1) {
+      const error = new Error(`Er kan maar één optie uit de categorie "${category}" gekozen worden (gekozen: ${picked.map((p) => p.name).join(', ')})`);
+      error.status = 400;
+      throw error;
+    }
+  }
+
+  return merged;
 }
 
 function csvEscape(value) {
@@ -129,7 +150,7 @@ function csvEscape(value) {
 // Get all quotes (search, status filter, pagination)
 router.get('/', async (req, res) => {
   try {
-    const { search, status, expiringSoon } = req.query;
+    const { search, status, expiringSoon, needsFollowup } = req.query;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
     const offset = (page - 1) * limit;
@@ -151,6 +172,13 @@ router.get('/', async (req, res) => {
       const cutoff = new Date(Date.now() + EXPIRY_WARNING_DAYS * 24 * 60 * 60 * 1000).toISOString();
       conditions.push(`status IN (${OPEN_STATUSES.map(() => '?').join(', ')})`, 'expiresAt IS NOT NULL', 'expiresAt <= ?');
       params.push(...OPEN_STATUSES, cutoff);
+    }
+    if (needsFollowup === 'true') {
+      // 'sent' and quiet ever since — a customer who already accepted/declined doesn't
+      // need a nudge, and a quote that's still a draft was never waiting on them.
+      const cutoff = new Date(Date.now() - FOLLOWUP_REMINDER_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      conditions.push("status = 'sent'", 'sentAt IS NOT NULL', 'sentAt <= ?');
+      params.push(cutoff);
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -357,7 +385,7 @@ router.post('/', async (req, res) => {
     const basePrice = vehicle.basePrice;
 
     const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
-    const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories), mandatoryAccessories);
+    const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories);
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
 
     const validationError = validatePricingInputs(basePrice, accessoriesTotal, discountType, discountValue);
@@ -530,6 +558,16 @@ router.post('/:id/send-email', async (req, res) => {
     const acceptanceTokenHash = crypto.createHash('sha256').update(acceptanceToken).digest('hex');
     const acceptUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/?acceptQuote=${acceptanceToken}`;
 
+    // A quote's expiresAt is fixed 30 days out at creation and never otherwise renewed.
+    // Sending it again after that window has already lapsed (e.g. a rep following up on
+    // a stale "Vervolg nodig" quote) would otherwise hand the customer a link tied to that
+    // same stale date — dead on arrival, or dead within hours. Re-quote it with a fresh
+    // 30-day window instead, so the emailed PDF, the "Geldig tot" date and the acceptance
+    // link all agree and the link is actually usable for the period the customer is told.
+    if (new Date(quote.expiresAt) <= new Date()) {
+      quote.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    }
+
     const pdfBuffer = await generateQuotePdfBuffer({ quote, vehicle, items, financing });
     await sendQuoteEmail({
       to: quote.customerEmail,
@@ -542,8 +580,8 @@ router.post('/:id/send-email', async (req, res) => {
     });
 
     await runAsync(
-      `UPDATE quotes SET status = 'sent', acceptanceTokenHash = ?, acceptanceTokenExpires = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
-      [acceptanceTokenHash, quote.expiresAt, req.params.id]
+      `UPDATE quotes SET status = 'sent', expiresAt = ?, acceptanceTokenHash = ?, acceptanceTokenExpires = ?, sentAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+      [quote.expiresAt, acceptanceTokenHash, quote.expiresAt, req.params.id]
     );
     const updated = await getAsync('SELECT * FROM quotes WHERE id = ?', [req.params.id]);
     res.json({ ...updated, configuration: JSON.parse(updated.configuration) });
@@ -630,7 +668,7 @@ router.put('/:id', async (req, res) => {
     if (accessories) {
       const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
       const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
-      resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories), mandatoryAccessories);
+      resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle?.name), mandatoryAccessories);
     }
     const accessoriesTotal = resolvedAccessories
       ? resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0)
@@ -661,8 +699,13 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'De korting op deze offerte moet eerst goedgekeurd worden door een sales manager voordat de offerte verzonden of geaccepteerd kan worden' });
     }
 
+    // Only stamp sentAt on an actual draft->sent transition here — an edit that leaves an
+    // already-sent quote as 'sent' (e.g. a typo fix) must not reset the follow-up clock.
+    // send-email (above) always stamps it fresh since that's an explicit new send.
+    const sentAt = finalStatus === 'sent' && quote.status !== 'sent' ? new Date().toISOString() : quote.sentAt;
+
     await runAsync(
-      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, tradeInEnabled = ?, tradeInMake = ?, tradeInModel = ?, tradeInYear = ?, tradeInMileage = ?, tradeInValue = ?, notes = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, tradeInEnabled = ?, tradeInMake = ?, tradeInModel = ?, tradeInYear = ?, tradeInMileage = ?, tradeInValue = ?, notes = ?, status = ?, sentAt = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         resolvedDiscountType,
@@ -695,6 +738,7 @@ router.put('/:id', async (req, res) => {
         resolvedTradeInEnabled ? resolvedTradeInValue : 0,
         notes !== undefined ? notes : quote.notes,
         finalStatus,
+        sentAt,
         quoteId,
       ]
     );

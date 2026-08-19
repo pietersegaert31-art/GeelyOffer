@@ -7,6 +7,7 @@ import ResetPasswordPage from './components/ResetPasswordPage'
 import AcceptQuotePage from './components/AcceptQuotePage'
 import AdminPage from './components/AdminPage'
 import ReportsPage from './components/ReportsPage'
+import InventoryPage from './components/InventoryPage'
 import ChangePasswordModal from './components/ChangePasswordModal'
 import { useAuth } from './context/AuthContext'
 import './App.css'
@@ -62,6 +63,9 @@ function App() {
         )}
         {page === 'quotes' && (
           <QuoteList key={quotesRefreshKey} />
+        )}
+        {page === 'inventory' && (
+          <InventoryPage />
         )}
         {page === 'reports' && canSeeReports && (
           <ReportsPage />

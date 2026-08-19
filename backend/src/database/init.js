@@ -171,6 +171,15 @@ function fixAccessoryColorDataIfStale(database) {
   });
 }
 
+// Quotes that reached 'sent' before the sentAt column existed would otherwise never
+// surface for a follow-up reminder (the needsFollowup filter requires sentAt IS NOT
+// NULL) until someone happens to edit them again. updatedAt is the closest available
+// approximation of when that send actually happened, so it's used as a one-time
+// backfill; already-populated rows (real sends since this feature shipped) are untouched.
+function backfillSentAtIfMissing(database) {
+  database.run(`UPDATE quotes SET sentAt = updatedAt WHERE status = 'sent' AND sentAt IS NULL`);
+}
+
 function bootstrapAdminIfNoUsers(database) {
   database.get('SELECT COUNT(*) AS count FROM users', (err, row) => {
     if (err) {
@@ -364,6 +373,11 @@ export function initializeDatabase() {
     addColumnIfMissing(database, 'quotes', 'acceptanceTokenExpires', 'DATETIME');
     addColumnIfMissing(database, 'quotes', 'acceptedAt', 'DATETIME');
     addColumnIfMissing(database, 'quotes', 'acceptedByName', 'TEXT');
+    // Set only when status actually transitions to 'sent' (see routes/quotes.js) — unlike
+    // updatedAt, this doesn't bump on unrelated edits to an already-sent quote, so
+    // "days since sent" for the follow-up reminder stays meaningful instead of resetting
+    // every time a rep fixes a typo in the notes.
+    addColumnIfMissing(database, 'quotes', 'sentAt', 'DATETIME');
 
     // Quote Items (accessories/options) table
     database.run(`
@@ -427,6 +441,28 @@ export function initializeDatabase() {
         uploadedBy TEXT,
         uploadedByName TEXT,
         createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Physical stock units per branch — separate from the `vehicles` table, which is the
+    // abstract price-list catalog (a model+trim, not a specific car). One row here is one
+    // real unit a branch either has, has coming, has set aside for someone, or has sold.
+    database.run(`
+      CREATE TABLE IF NOT EXISTS inventory (
+        id TEXT PRIMARY KEY,
+        vehicleId TEXT NOT NULL,
+        branchId TEXT,
+        vin TEXT,
+        colorAccessoryId TEXT,
+        status TEXT NOT NULL DEFAULT 'in_stock',
+        expectedArrival DATE,
+        reservedFor TEXT,
+        notes TEXT,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vehicleId) REFERENCES vehicles(id),
+        FOREIGN KEY (branchId) REFERENCES branches(id),
+        FOREIGN KEY (colorAccessoryId) REFERENCES accessories(id)
       )
     `);
 
@@ -598,6 +634,7 @@ export function initializeDatabase() {
     seedAccessoriesIfEmpty(database);
     fixAccessoryColorDataIfStale(database);
     seedDeliveryPackIfMissing(database);
+    backfillSentAtIfMissing(database);
     bootstrapAdminIfNoUsers(database);
 
     console.log('✓ Database tables initialized');

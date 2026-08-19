@@ -73,8 +73,16 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
 
         setVehicle(vehicleData)
         setAccessoriesCatalog(catalog)
+        // Matching by name alone isn't safe: two accessories for different vehicles can
+        // share a name (e.g. "Delivery Pack" exists once per model), so without the
+        // vehicle-applicability check below, opening any quote would also silently pick
+        // up the OTHER model's same-named accessory — invisible in the UI (which only
+        // ever displays options for this vehicle) but included in what gets saved.
         setSelectedAccessories(
-          catalog.filter((acc) => quote.items?.some((item) => item.itemName === acc.name))
+          catalog.filter((acc) =>
+            (!acc.vehicleModels || acc.vehicleModels.includes(vehicleData.name)) &&
+            quote.items?.some((item) => item.itemName === acc.name)
+          )
         )
         setDiscountType(quote.discountType || 'percentage')
         setDiscountValue((quote.discountType === 'fixed' ? quote.discountEuro : quote.discountPercentage) || 0)

@@ -89,11 +89,12 @@ export const api = {
   async createQuote(quoteData) {
     return request('/quotes', { method: 'POST', body: JSON.stringify(quoteData) })
   },
-  async getQuotes({ search = '', status = '', expiringSoon = false, page = 1, limit = 25 } = {}) {
+  async getQuotes({ search = '', status = '', expiringSoon = false, needsFollowup = false, page = 1, limit = 25 } = {}) {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) params.set('search', search)
     if (status) params.set('status', status)
     if (expiringSoon) params.set('expiringSoon', 'true')
+    if (needsFollowup) params.set('needsFollowup', 'true')
     return request(`/quotes?${params.toString()}`)
   },
   async getQuote(id) {
@@ -212,6 +213,25 @@ export const api = {
     if (entityType) params.set('entityType', entityType)
     if (entityId) params.set('entityId', entityId)
     return request(`/audit-log?${params.toString()}`)
+  },
+
+  // Inventory (physical stock units)
+  async getInventory({ vehicleId = '', branchId = '', status = '' } = {}) {
+    const params = new URLSearchParams()
+    if (vehicleId) params.set('vehicleId', vehicleId)
+    if (branchId) params.set('branchId', branchId)
+    if (status) params.set('status', status)
+    const qs = params.toString()
+    return request(`/inventory${qs ? `?${qs}` : ''}`)
+  },
+  async createInventoryUnit(unitData) {
+    return request('/inventory', { method: 'POST', body: JSON.stringify(unitData) })
+  },
+  async updateInventoryUnit(id, unitData) {
+    return request(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(unitData) })
+  },
+  async deleteInventoryUnit(id) {
+    return request(`/inventory/${id}`, { method: 'DELETE' })
   },
 
   // Imports (price lists / documents)

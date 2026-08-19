@@ -445,12 +445,15 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   yPos += 12;
 
   // Pricing breakdown table
-  doc.fontSize(9).font('Inter-Bold').fillColor('#FFF');
-  doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 24).fill('#1F4E78');
-  doc.fillColor('#FFF').text('Omschrijving', 50, yPos + 7);
-  doc.text('Eenheidsprijs', 350, yPos + 7);
-  doc.text('Aantal', 430, yPos + 7);
-  doc.text('Totaal', 480, yPos + 7);
+  const drawTableHeaderBar = (y) => {
+    doc.fontSize(9).font('Inter-Bold').fillColor('#FFF');
+    doc.rect(PAGE_LEFT, y, CONTENT_WIDTH, 24).fill('#1F4E78');
+    doc.fillColor('#FFF').text('Omschrijving', 50, y + 7);
+    doc.text('Eenheidsprijs', 350, y + 7);
+    doc.text('Aantal', 430, y + 7);
+    doc.text('Totaal', 480, y + 7);
+  };
+  drawTableHeaderBar(yPos);
   yPos += 24;
 
   const rows = [
@@ -458,21 +461,55 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     ...items.map(item => ({ name: item.itemName, unitPrice: item.unitPrice, quantity: item.quantity, totalPrice: item.totalPrice })),
   ];
 
+  const rowHeight = 18;
+  const pageBottomForTable = doc.page.height - doc.page.margins.bottom;
   doc.font('Inter').fontSize(9);
   rows.forEach((row, index) => {
+    // A catalog with enough options selected can push this table past the bottom
+    // margin — pdfkit's own auto-pagination on .text() would silently insert a page
+    // here without this yPos tracker knowing, corrupting every section drawn below
+    // (subtotal, VAT box, trade-in, financing, signatures). Break proactively instead,
+    // with a fresh header and a repeated column bar so the continuation reads cleanly.
+    if (yPos + rowHeight > pageBottomForTable) {
+      doc.addPage();
+      doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+      doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
+      doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+      doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+      yPos = 108;
+      drawTableHeaderBar(yPos);
+      yPos += 24;
+      doc.font('Inter').fontSize(9);
+    }
     if (index % 2 === 1) {
-      doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 18).fill('#F9FAFB');
+      doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, rowHeight).fill('#F9FAFB');
     }
     doc.fillColor('#000');
     doc.text(row.name, 50, yPos + 4, { width: 290 });
     doc.text(formatPrice(row.unitPrice), 350, yPos + 4);
     doc.text(row.quantity.toString(), 430, yPos + 4);
     doc.text(formatPrice(row.totalPrice), 480, yPos + 4);
-    yPos += 18;
+    yPos += rowHeight;
   });
 
   doc.moveTo(PAGE_LEFT, yPos + 4).lineTo(PAGE_RIGHT, yPos + 4).stroke('#CCC');
   yPos += 16;
+
+  const hasTradeIn = quote.tradeInEnabled && quote.tradeInValue > 0;
+
+  // The subtotal/discount lines and the excl./incl.-BTW box below all belong to one
+  // visual unit (the running price ladder) — if it doesn't fit as a whole, break before
+  // any of it starts rather than splitting it awkwardly across two pages.
+  const priceLadderHeight = 18 + (quote.discountPercentage > 0 ? 18 : 0) + 6
+    + (hasTradeIn ? 13 : 0) + (hasTradeIn ? 118 : 76) + (hasTradeIn ? 12 : 0);
+  if (yPos + priceLadderHeight > pageBottomForTable) {
+    doc.addPage();
+    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
+    doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+    yPos = 108;
+  }
 
   doc.fontSize(9).font('Inter').fillColor('#000');
   doc.text('Subtotaal (incl. BTW):', 350, yPos, { width: 120 });
@@ -498,7 +535,6 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   const labelWidth = 140;
   const valueX = boxX + boxPadding + labelWidth;
   const valueWidth = boxWidth - boxPadding * 2 - labelWidth;
-  const hasTradeIn = quote.tradeInEnabled && quote.tradeInValue > 0;
 
   if (hasTradeIn) {
     const tradeInLabel = [quote.tradeInMake, quote.tradeInModel].filter(Boolean).join(' ') || 'Inruilwagen';
@@ -581,12 +617,30 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     yPos += 12;
   }
 
-  // Notes
+  // Notes — if the full block wouldn't fit in what's left of this page, start a fresh
+  // page for it (with its own header) instead of letting pdfkit's default text-flow
+  // silently auto-paginate mid-paragraph. That auto page-break happens inside the
+  // doc.text() call itself, invisibly to the yPos this function tracks by hand — the
+  // signature-block placement right after this would then be computed from a yPos that
+  // no longer corresponds to where the page cursor actually ended up, landing signatures
+  // on a headerless orphan page with no relation to what's actually above them.
   if (quote.notes) {
-    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
-    yPos += 12;
-    doc.fontSize(8).font('Inter').fillColor('#333');
+    const notesLabelHeight = 12;
+    doc.fontSize(8).font('Inter');
     const notesHeight = doc.heightOfString(quote.notes, { width: CONTENT_WIDTH });
+    const pageBottomForNotes = doc.page.height - doc.page.margins.bottom;
+    if (yPos + notesLabelHeight + notesHeight + 10 > pageBottomForNotes) {
+      doc.addPage();
+      doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+      doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
+      doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+      doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+      yPos = 108;
+    }
+
+    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
+    yPos += notesLabelHeight;
+    doc.fontSize(8).font('Inter').fillColor('#333');
     doc.text(quote.notes, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
     yPos += notesHeight + 10;
   }
