@@ -438,11 +438,11 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   doc.font('Inter');
   rightLines.forEach((line) => { doc.text(line, 321, cy2); cy2 += 16; });
 
-  let yPos = cardY + cardHeight + 24;
+  let yPos = cardY + cardHeight + 18;
 
   doc.fillColor('#999').fontSize(8).font('Inter')
     .text('Alle vermelde prijzen zijn Geely-adviesprijzen, inclusief 21% BTW.', PAGE_LEFT, yPos);
-  yPos += 16;
+  yPos += 12;
 
   // Pricing breakdown table
   doc.fontSize(9).font('Inter-Bold').fillColor('#FFF');
@@ -461,137 +461,162 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   doc.font('Inter').fontSize(9);
   rows.forEach((row, index) => {
     if (index % 2 === 1) {
-      doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 20).fill('#F9FAFB');
+      doc.rect(PAGE_LEFT, yPos, CONTENT_WIDTH, 18).fill('#F9FAFB');
     }
     doc.fillColor('#000');
-    doc.text(row.name, 50, yPos + 5, { width: 290 });
-    doc.text(formatPrice(row.unitPrice), 350, yPos + 5);
-    doc.text(row.quantity.toString(), 430, yPos + 5);
-    doc.text(formatPrice(row.totalPrice), 480, yPos + 5);
-    yPos += 20;
+    doc.text(row.name, 50, yPos + 4, { width: 290 });
+    doc.text(formatPrice(row.unitPrice), 350, yPos + 4);
+    doc.text(row.quantity.toString(), 430, yPos + 4);
+    doc.text(formatPrice(row.totalPrice), 480, yPos + 4);
+    yPos += 18;
   });
 
-  doc.moveTo(PAGE_LEFT, yPos + 5).lineTo(PAGE_RIGHT, yPos + 5).stroke('#CCC');
-  yPos += 25;
+  doc.moveTo(PAGE_LEFT, yPos + 4).lineTo(PAGE_RIGHT, yPos + 4).stroke('#CCC');
+  yPos += 16;
 
   doc.fontSize(9).font('Inter').fillColor('#000');
   doc.text('Subtotaal (incl. BTW):', 350, yPos, { width: 120 });
   doc.text(formatPrice(quote.basePrice + quote.accessories), 480, yPos, { width: 70, align: 'right' });
-  yPos += 20;
+  yPos += 18;
 
   if (quote.discountPercentage > 0) {
     doc.text(`Korting (${quote.discountPercentage}%):`, 350, yPos, { width: 120 });
     doc.text('-' + formatPrice(quote.discountAmount), 480, yPos, { width: 70, align: 'right' });
-    yPos += 20;
+    yPos += 18;
   }
-  yPos += 12;
+  yPos += 6;
 
-  // Excl./BTW/incl. summary box
+  // Excl./BTW/incl. summary box — a trade-in deduction (if any) is added as two more
+  // rows of the SAME box, right below the incl.-BTW total, instead of a second separate
+  // card. It's really just the next two lines of one running total ("this is the car's
+  // price, this is what you get for your old one, this is what's left to pay"), and
+  // folding it in keeps the whole price ladder compact — worth doing deliberately, not
+  // just to save space, since one continuous box also reads more clearly than two.
   const boxWidth = 260;
   const boxX = PAGE_RIGHT - boxWidth;
-  const boxHeight = 92;
-  const boxPadding = 16;
+  const boxPadding = 14;
   const labelWidth = 140;
   const valueX = boxX + boxPadding + labelWidth;
   const valueWidth = boxWidth - boxPadding * 2 - labelWidth;
+  const hasTradeIn = quote.tradeInEnabled && quote.tradeInValue > 0;
 
-  doc.roundedRect(boxX, yPos, boxWidth, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
-
-  let rowY = yPos + 16;
-  doc.font('Inter').fontSize(9).fillColor('#333');
-  doc.text('Totaalprijs excl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
-  doc.text(formatPrice(quote.subtotal), valueX, rowY, { width: valueWidth, align: 'right' });
-
-  rowY += 18;
-  doc.text('BTW (21%)', boxX + boxPadding, rowY, { width: labelWidth });
-  doc.text(formatPrice(quote.vatAmount), valueX, rowY, { width: valueWidth, align: 'right' });
-
-  rowY += 24;
-  doc.moveTo(boxX + boxPadding, rowY - 8).lineTo(boxX + boxWidth - boxPadding, rowY - 8).stroke('#CBD3DB');
-
-  doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
-  doc.text('Totaalprijs incl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
-  doc.text(formatPrice(quote.totalPrice), valueX, rowY, { width: valueWidth, align: 'right' });
-
-  yPos += boxHeight + 24;
-
-  // Trade-in (inruilwagen) — a purely informational deduction, shown separately from
-  // the summary box above so "Totaalprijs incl. BTW" always keeps meaning what it says
-  // (the vehicle's own price) rather than being silently reduced by the trade-in.
-  if (quote.tradeInEnabled) {
-    const tiBoxHeight = 92;
-    doc.roundedRect(boxX, yPos, boxWidth, tiBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
-
-    let tiY = yPos + 16;
-    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('INRUILWAGEN', boxX + boxPadding, tiY, { characterSpacing: 1 });
-    tiY += 16;
+  if (hasTradeIn) {
     const tradeInLabel = [quote.tradeInMake, quote.tradeInModel].filter(Boolean).join(' ') || 'Inruilwagen';
     const tradeInDetail = [
       quote.tradeInYear ? `bouwjaar ${quote.tradeInYear}` : null,
       quote.tradeInMileage ? `${Number(quote.tradeInMileage).toLocaleString('nl-BE')} km` : null,
     ].filter(Boolean).join(', ');
-    doc.font('Inter').fontSize(9).fillColor('#333').text(tradeInDetail ? `${tradeInLabel} (${tradeInDetail})` : tradeInLabel, boxX + boxPadding, tiY, { width: boxWidth - boxPadding * 2 });
-    tiY += 18;
-
-    doc.text('Geschatte inruilwaarde', boxX + boxPadding, tiY, { width: labelWidth });
-    doc.text('-' + formatPrice(quote.tradeInValue), valueX, tiY, { width: valueWidth, align: 'right' });
-    tiY += 24;
-    doc.moveTo(boxX + boxPadding, tiY - 8).lineTo(boxX + boxWidth - boxPadding, tiY - 8).stroke('#CBD3DB');
-
-    doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
-    doc.text('Te betalen na inruil', boxX + boxPadding, tiY, { width: labelWidth });
-    doc.text(formatPrice(Math.max(0, quote.totalPrice - quote.tradeInValue)), valueX, tiY, { width: valueWidth, align: 'right' });
-
-    doc.font('Inter').fontSize(7).fillColor('#999')
-      .text('Schatting door de verkoper, geen bindende taxatie.', boxX, yPos + tiBoxHeight + 4, { width: boxWidth, align: 'right' });
-
-    yPos += tiBoxHeight + 28;
+    doc.font('Inter').fontSize(8).fillColor('#999').text(
+      tradeInDetail ? `Inruilwagen: ${tradeInLabel} (${tradeInDetail})` : `Inruilwagen: ${tradeInLabel}`,
+      boxX, yPos, { width: boxWidth, align: 'right' }
+    );
+    yPos += 13;
   }
 
+  const boxHeight = hasTradeIn ? 118 : 76;
+  doc.roundedRect(boxX, yPos, boxWidth, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
+
+  let rowY = yPos + 14;
+  doc.font('Inter').fontSize(9).fillColor('#333');
+  doc.text('Totaalprijs excl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(formatPrice(quote.subtotal), valueX, rowY, { width: valueWidth, align: 'right' });
+
+  rowY += 16;
+  doc.text('BTW (21%)', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(formatPrice(quote.vatAmount), valueX, rowY, { width: valueWidth, align: 'right' });
+
+  rowY += 20;
+  doc.moveTo(boxX + boxPadding, rowY - 7).lineTo(boxX + boxWidth - boxPadding, rowY - 7).stroke('#CBD3DB');
+
+  doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
+  doc.text('Totaalprijs incl. BTW', boxX + boxPadding, rowY, { width: labelWidth });
+  doc.text(formatPrice(quote.totalPrice), valueX, rowY, { width: valueWidth, align: 'right' });
+
+  if (hasTradeIn) {
+    rowY += 26;
+    doc.font('Inter').fontSize(9).fillColor('#333');
+    doc.text('Inruilwaarde (geschat)', boxX + boxPadding, rowY, { width: labelWidth });
+    doc.text('-' + formatPrice(quote.tradeInValue), valueX, rowY, { width: valueWidth, align: 'right' });
+
+    rowY += 20;
+    doc.moveTo(boxX + boxPadding, rowY - 7).lineTo(boxX + boxWidth - boxPadding, rowY - 7).stroke('#CBD3DB');
+
+    doc.font('Inter-Bold').fontSize(12).fillColor('#1F4E78');
+    doc.text('Te betalen na inruil', boxX + boxPadding, rowY, { width: labelWidth });
+    doc.text(formatPrice(Math.max(0, quote.totalPrice - quote.tradeInValue)), valueX, rowY, { width: valueWidth, align: 'right' });
+  }
+
+  yPos += boxHeight;
+  if (hasTradeIn) {
+    yPos += 3;
+    doc.font('Inter').fontSize(7).fillColor('#999')
+      .text('Schatting door de verkoper, geen bindende taxatie.', boxX, yPos, { width: boxWidth, align: 'right' });
+    yPos += 9;
+  }
+  yPos += 12;
+
   // Financing simulation — an indicative monthly payment, never a binding offer (the
-  // disclaimer says so explicitly). Uses the same net amount as the trade-in box above
-  // (after trade-in deduction, if any) since that's what the customer would actually
-  // need to finance.
-  const financingPrincipal = Math.max(0, quote.totalPrice - (quote.tradeInEnabled ? quote.tradeInValue : 0));
+  // disclaimer says so explicitly). Uses the net amount after trade-in (if any), since
+  // that's what the customer would actually need to finance.
+  const financingPrincipal = Math.max(0, quote.totalPrice - (hasTradeIn ? quote.tradeInValue : 0));
   if (financing && financing.terms.length > 0 && financingPrincipal > 0) {
-    const finBoxHeight = 66;
+    const finBoxHeight = 58;
     doc.roundedRect(PAGE_LEFT, yPos, CONTENT_WIDTH, finBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 
-    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('FINANCIERINGSSIMULATIE', PAGE_LEFT + 18, yPos + 14, { characterSpacing: 1 });
+    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text('FINANCIERINGSSIMULATIE', PAGE_LEFT + 16, yPos + 12, { characterSpacing: 1 });
 
-    const termColWidth = (CONTENT_WIDTH - 36) / financing.terms.length;
+    const termColWidth = (CONTENT_WIDTH - 32) / financing.terms.length;
     financing.terms.forEach((term, i) => {
-      const x = PAGE_LEFT + 18 + i * termColWidth;
+      const x = PAGE_LEFT + 16 + i * termColWidth;
       const monthly = calculateMonthlyPayment(financingPrincipal, financing.annualRatePercent, term);
-      doc.font('Inter-Bold').fontSize(13).fillColor('#000').text(formatPrice(monthly), x, yPos + 30, { width: termColWidth });
-      doc.font('Inter').fontSize(8).fillColor('#666').text(`per maand · ${term} mnd`, x, yPos + 47, { width: termColWidth });
+      doc.font('Inter-Bold').fontSize(12).fillColor('#000').text(formatPrice(monthly), x, yPos + 27, { width: termColWidth });
+      doc.font('Inter').fontSize(8).fillColor('#666').text(`per maand · ${term} mnd`, x, yPos + 43, { width: termColWidth });
     });
 
-    yPos += finBoxHeight + 6;
+    yPos += finBoxHeight + 4;
     doc.font('Inter').fontSize(7).fillColor('#999').text(
       `Indicatieve schatting o.b.v. ${financing.annualRatePercent}% jaarrente, geen bindend aanbod. Neem contact op met onze financieringspartner voor een persoonlijk voorstel.`,
       PAGE_LEFT, yPos, { width: CONTENT_WIDTH }
     );
-    yPos += 22;
+    yPos += 12;
   }
 
   // Notes
   if (quote.notes) {
     doc.fillColor('#000').fontSize(9).font('Inter-Bold').text('Opmerkingen:', PAGE_LEFT, yPos);
-    yPos += 14;
+    yPos += 12;
     doc.fontSize(8).font('Inter').fillColor('#333');
     const notesHeight = doc.heightOfString(quote.notes, { width: CONTENT_WIDTH });
     doc.text(quote.notes, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
-    yPos += notesHeight + 15;
+    yPos += notesHeight + 10;
   }
 
-  // Signature blocks
-  if (yPos > 590) {
-    doc.addPage();
-    yPos = 60;
-  }
+  // Signature blocks — break to a new page only if they genuinely don't fit (checked
+  // against the real page geometry, not a guessed constant), so a normal quote with a
+  // trade-in and/or financing box doesn't get pushed onto an otherwise near-empty extra
+  // page just for two signature boxes and a footer line. Tightening the spacing above
+  // means most quotes never reach this branch at all — but a customer with a long
+  // address, a trade-in, and long notes all at once can still legitimately run out of
+  // room, so this stays as a deliberate fallback rather than something to keep chasing
+  // with ever-smaller margins: when it does trigger, the new page gets its own proper
+  // header and a centered closing line instead of two boxes stranded at the top of an
+  // otherwise blank page.
   const sigWidth = 245;
   const sigHeight = 80;
+  const pageBottom = doc.page.height - doc.page.margins.bottom;
+  const spaceNeededForSignaturesAndFooter = sigHeight + 20 /* gap */ + 28 /* two footer lines */;
+  if (yPos + spaceNeededForSignaturesAndFooter > pageBottom) {
+    doc.addPage();
+    doc.image(LOGO_PATH, PAGE_RIGHT - smallLogoWidth, 40, { width: smallLogoWidth });
+    doc.fillColor('#1F4E78').fontSize(18).font('Inter-Bold').text('Offerte', PAGE_LEFT, 40);
+    doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
+    doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
+
+    yPos = 220;
+    doc.fillColor('#333').fontSize(11).font('Inter')
+      .text('Bedankt voor uw interesse in deze Geely. Onderteken hieronder voor akkoord.', PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
+    yPos += 40;
+  }
   doc.roundedRect(PAGE_LEFT, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
   doc.roundedRect(305, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
   doc.fillColor('#999').fontSize(8).font('Inter-Bold');
