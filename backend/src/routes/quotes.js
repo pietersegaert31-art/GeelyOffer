@@ -33,6 +33,18 @@ async function resolveActorBranch(user) {
   return { branchId: branch.id, branchName: branch.name, branchAddress: branch.address };
 }
 
+// Normalizes a Belgian VAT number to a single canonical "BE" + 10-digit form regardless
+// of how the rep typed it (with dots, spaces, a "BE" prefix or not) — so the same company
+// always renders identically on every quote/PDF/CSV export instead of drifting per rep.
+// Anything that isn't a recognizable Belgian VAT number is stored trimmed, as-is, rather
+// than rejected outright (a rep may legitimately be quoting a foreign business).
+function normalizeVatNumber(raw) {
+  if (!raw) return null;
+  const digits = String(raw).replace(/^BE/i, '').replace(/[^0-9]/g, '');
+  if (/^[01]\d{9}$/.test(digits)) return `BE${digits}`;
+  return String(raw).trim() || null;
+}
+
 // Resolve client-submitted accessory lines against the authoritative accessories
 // table by id — a quote's price must never be derived from a client-supplied price,
 // name, or line total, or any authenticated user could quote a customer whatever
@@ -125,7 +137,7 @@ router.get('/', async (req, res) => {
 router.get('/export.csv', async (req, res) => {
   try {
     const quotes = await allAsync('SELECT * FROM quotes ORDER BY createdAt DESC');
-    const header = ['Klant', 'E-mail', 'Telefoon', 'Bedrijf', 'Model', 'Status', 'Korting', 'Totaal excl. BTW', 'BTW', 'Totaal incl. BTW', 'Verkoper', 'Datum'];
+    const header = ['Klant', 'Type', 'E-mail', 'Telefoon', 'Adres', 'Bedrijf', 'BTW-nummer', 'Model', 'Status', 'Korting', 'Totaal excl. BTW', 'BTW', 'Totaal incl. BTW', 'Verkoper', 'Datum'];
     const lines = [header.map(csvEscape).join(',')];
 
     quotes.forEach((q) => {
@@ -133,11 +145,15 @@ router.get('/export.csv', async (req, res) => {
       const discount = q.discountType === 'fixed'
         ? (q.discountEuro > 0 ? `€${q.discountEuro}` : '')
         : (q.discountPercentage > 0 ? `${q.discountPercentage}%` : '');
+      const address = [q.customerStreet, [q.customerPostalCode, q.customerCity].filter(Boolean).join(' ')].filter(Boolean).join(', ');
       lines.push([
         q.customerName,
+        q.customerType === 'bedrijf' ? 'Bedrijf' : 'Particulier',
         q.customerEmail,
         q.customerPhone,
+        address,
         q.customerCompany,
+        q.customerVatNumber,
         `${configuration.vehicleName || ''} ${configuration.vehicleModel || ''}`.trim(),
         q.status,
         discount,
@@ -188,6 +204,11 @@ router.post('/', async (req, res) => {
       customerEmail,
       customerPhone,
       customerCompany,
+      customerType = 'particulier',
+      customerVatNumber,
+      customerStreet,
+      customerPostalCode,
+      customerCity,
       selectedVehicleId,
       configuration,
       discountType = 'percentage',
@@ -198,6 +219,9 @@ router.post('/', async (req, res) => {
 
     if (!customerName || !selectedVehicleId) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+    if (!['particulier', 'bedrijf'].includes(customerType)) {
+      return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
     }
 
     const vehicle = await getAsync('SELECT * FROM vehicles WHERE id = ?', [selectedVehicleId]);
@@ -223,14 +247,19 @@ router.post('/', async (req, res) => {
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         customerName,
         customerEmail || null,
         customerPhone || null,
-        customerCompany || null,
+        customerType === 'bedrijf' ? (customerCompany || null) : null,
+        customerType,
+        customerType === 'bedrijf' ? normalizeVatNumber(customerVatNumber) : null,
+        customerStreet || null,
+        customerPostalCode || null,
+        customerCity || null,
         selectedVehicleId,
         JSON.stringify(configuration || {}),
         basePrice,
@@ -304,11 +333,16 @@ router.post('/:id/duplicate', async (req, res) => {
     const branch = await resolveActorBranch(req.user);
 
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, expiresAt, createdBy, createdByName, branchId, branchName, branchAddress)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         `${source.customerName} (kopie)`,
+        null,
+        null,
+        null,
+        'particulier',
+        null,
         null,
         null,
         null,
@@ -423,7 +457,12 @@ router.post('/:id/reject-discount', requireManager, async (req, res) => {
 // Update quote
 router.put('/:id', async (req, res) => {
   try {
-    const { discountType, discountValue, accessories, customerName, customerEmail, customerPhone, customerCompany, notes, status } = req.body;
+    const {
+      discountType, discountValue, accessories,
+      customerName, customerEmail, customerPhone, customerCompany,
+      customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity,
+      notes, status,
+    } = req.body;
     const quoteId = req.params.id;
 
     const quote = await getAsync('SELECT * FROM quotes WHERE id = ?', [quoteId]);
@@ -434,6 +473,10 @@ router.put('/:id', async (req, res) => {
     if (status !== undefined && !QUOTE_STATUSES.includes(status)) {
       return res.status(400).json({ error: `status must be one of: ${QUOTE_STATUSES.join(', ')}` });
     }
+    if (customerType !== undefined && !['particulier', 'bedrijf'].includes(customerType)) {
+      return res.status(400).json({ error: 'customerType must be "particulier" or "bedrijf"' });
+    }
+    const resolvedCustomerType = customerType !== undefined ? customerType : quote.customerType;
 
     const basePrice = quote.basePrice;
     const resolvedAccessories = accessories ? await resolveAccessories(accessories) : null;
@@ -467,7 +510,7 @@ router.put('/:id', async (req, res) => {
     }
 
     await runAsync(
-      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, notes = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
+      `UPDATE quotes SET discountType = ?, discountPercentage = ?, discountEuro = ?, discountAmount = ?, discountApprovalStatus = ?, accessories = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, customerName = ?, customerEmail = ?, customerPhone = ?, customerCompany = ?, customerType = ?, customerVatNumber = ?, customerStreet = ?, customerPostalCode = ?, customerCity = ?, notes = ?, status = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         resolvedDiscountType,
@@ -482,7 +525,16 @@ router.put('/:id', async (req, res) => {
         customerName || quote.customerName,
         customerEmail !== undefined ? customerEmail : quote.customerEmail,
         customerPhone !== undefined ? customerPhone : quote.customerPhone,
-        customerCompany !== undefined ? customerCompany : quote.customerCompany,
+        // Company name/VAT number only make sense for 'bedrijf' — switching a quote back
+        // to 'particulier' clears them rather than leaving stale company data attached.
+        resolvedCustomerType === 'bedrijf' ? (customerCompany !== undefined ? customerCompany : quote.customerCompany) : null,
+        resolvedCustomerType,
+        resolvedCustomerType === 'bedrijf'
+          ? (customerVatNumber !== undefined ? normalizeVatNumber(customerVatNumber) : quote.customerVatNumber)
+          : null,
+        customerStreet !== undefined ? customerStreet : quote.customerStreet,
+        customerPostalCode !== undefined ? customerPostalCode : quote.customerPostalCode,
+        customerCity !== undefined ? customerCity : quote.customerCity,
         notes !== undefined ? notes : quote.notes,
         finalStatus,
         quoteId,

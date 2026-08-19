@@ -18,6 +18,19 @@ function needsApprovalWarning(discountType, discountValue, role) {
     : discountValue > DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE
 }
 
+// Naam, e-mail, telefoon en volledig adres are always required; a "bedrijf" customer
+// additionally needs a company name and VAT number — so the offer always carries
+// everything needed to actually contact and (for a company) invoice the customer.
+function isCustomerInfoComplete(info) {
+  const base = info.customerName && info.customerEmail && info.customerPhone
+    && info.customerStreet && info.customerPostalCode && info.customerCity
+  if (!base) return false
+  if (info.customerType === 'bedrijf') {
+    return Boolean(info.customerCompany && info.customerVatNumber)
+  }
+  return true
+}
+
 // Known specification keys, in display order — label lookup with a fallback to the
 // raw key so an unrecognized future spec still shows up instead of silently vanishing.
 const SPEC_LABELS = {
@@ -85,7 +98,12 @@ function QuoteBuilder({ onQuoteCreated }) {
     customerName: '',
     customerEmail: '',
     customerPhone: '',
+    customerType: 'particulier',
     customerCompany: '',
+    customerVatNumber: '',
+    customerStreet: '',
+    customerPostalCode: '',
+    customerCity: '',
     notes: ''
   })
 
@@ -150,8 +168,8 @@ function QuoteBuilder({ onQuoteCreated }) {
   }
 
   const handleCreateQuote = async () => {
-    if (!customerInfo.customerName) {
-      setError('Please enter customer name')
+    if (!isCustomerInfoComplete(customerInfo)) {
+      setError('Vul alle verplichte klantgegevens in')
       setStep(4)
       return
     }
@@ -414,7 +432,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                   <button
                     className="btn btn-success"
                     onClick={handleCreateQuote}
-                    disabled={loading || !customerInfo.customerName}
+                    disabled={loading || !isCustomerInfoComplete(customerInfo)}
                   >
                     {loading ? 'Aanmaken...' : 'Offerte aanmaken'}
                   </button>

@@ -389,10 +389,25 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.fillColor('#666').fontSize(10).font('Inter').text(`${vehicle.name} ${vehicle.model}`, PAGE_LEFT, 66);
   doc.moveTo(PAGE_LEFT, 88).lineTo(PAGE_RIGHT, 88).stroke('#1F4E78');
 
-  // Offer + customer info cards
+  // Offer + customer info cards — height is computed from actual content instead of a
+  // fixed number, since a company customer now carries a name, VAT number, and full
+  // address, and a fixed height would clip that (or leave awkward extra space for a
+  // private customer with fewer lines).
   const cardY = 108;
-  const cardHeight = 112;
   const cardWidth = 245;
+
+  const rightLines = [];
+  if (quote.customerType === 'bedrijf' && quote.customerCompany) rightLines.push(quote.customerCompany);
+  if (quote.customerType === 'bedrijf' && quote.customerVatNumber) rightLines.push(`BTW: ${quote.customerVatNumber}`);
+  if (quote.customerStreet) rightLines.push(quote.customerStreet);
+  const cityLine = [quote.customerPostalCode, quote.customerCity].filter(Boolean).join(' ');
+  if (cityLine) rightLines.push(cityLine);
+  if (quote.customerEmail) rightLines.push(quote.customerEmail);
+  if (quote.customerPhone) rightLines.push(quote.customerPhone);
+
+  const leftLineCount = 3 + (quote.branchName ? 2 : 0); // offertenr/datum/geldig-tot, + vestiging naam/adres
+  const cardHeight = Math.max(34 + leftLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
+
   doc.lineWidth(1);
   doc.roundedRect(PAGE_LEFT, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
   doc.roundedRect(305, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
@@ -417,9 +432,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(quote.customerName, 321, cy2);
   cy2 += 16;
   doc.font('Inter');
-  if (quote.customerCompany) { doc.text(quote.customerCompany, 321, cy2); cy2 += 16; }
-  if (quote.customerEmail) { doc.text(quote.customerEmail, 321, cy2); cy2 += 16; }
-  if (quote.customerPhone) { doc.text(quote.customerPhone, 321, cy2); }
+  rightLines.forEach((line) => { doc.text(line, 321, cy2); cy2 += 16; });
 
   let yPos = cardY + cardHeight + 24;
 

@@ -266,6 +266,16 @@ export function initializeDatabase() {
     // 'approved' or 'rejected' (a manager reviewed it). Existing quotes default to
     // 'not_required' — this workflow only applies going forward.
     addColumnIfMissing(database, 'quotes', 'discountApprovalStatus', "TEXT DEFAULT 'not_required'");
+    // Customer detail expansion: type distinguishes which fields apply (a VAT number and
+    // company name only make sense for 'bedrijf'), the address columns are split rather
+    // than one free-text field so they read cleanly on the PDF and so a VIES lookup can
+    // fill them in individually. Existing quotes default to 'particulier' with blank
+    // address/VAT fields — nothing retroactive is inferred for them.
+    addColumnIfMissing(database, 'quotes', 'customerType', "TEXT DEFAULT 'particulier'");
+    addColumnIfMissing(database, 'quotes', 'customerVatNumber', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'customerStreet', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'customerPostalCode', 'TEXT');
+    addColumnIfMissing(database, 'quotes', 'customerCity', 'TEXT');
 
     // Quote Items (accessories/options) table
     database.run(`

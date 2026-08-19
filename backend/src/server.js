@@ -18,6 +18,7 @@ import reportsRouter from './routes/reports.js';
 import auditLogRouter from './routes/auditLog.js';
 import importsRouter from './routes/imports.js';
 import branchesRouter from './routes/branches.js';
+import vatLookupRouter from './routes/vatLookup.js';
 
 dotenv.config();
 
@@ -60,6 +61,7 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/audit-log', auditLogRouter);
 app.use('/api/imports', importsRouter);
 app.use('/api/branches', branchesRouter);
+app.use('/api/vat-lookup', vatLookupRouter);
 
 // Health check
 app.get('/health', (req, res) => {

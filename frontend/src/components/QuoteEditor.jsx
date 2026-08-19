@@ -17,6 +17,18 @@ function needsApprovalWarning(discountType, discountValue, role) {
     : discountValue > DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE
 }
 
+// Naam, e-mail, telefoon en volledig adres are always required; a "bedrijf" customer
+// additionally needs a company name and VAT number.
+function isCustomerInfoComplete(info) {
+  const base = info.customerName && info.customerEmail && info.customerPhone
+    && info.customerStreet && info.customerPostalCode && info.customerCity
+  if (!base) return false
+  if (info.customerType === 'bedrijf') {
+    return Boolean(info.customerCompany && info.customerVatNumber)
+  }
+  return true
+}
+
 function QuoteEditor({ quoteId, onClose, onSaved }) {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -31,7 +43,9 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   const [discountApprovalStatus, setDiscountApprovalStatus] = useState('not_required')
   const [status, setStatus] = useState('draft')
   const [customerInfo, setCustomerInfo] = useState({
-    customerName: '', customerEmail: '', customerPhone: '', customerCompany: '', notes: '',
+    customerName: '', customerEmail: '', customerPhone: '',
+    customerType: 'particulier', customerCompany: '', customerVatNumber: '',
+    customerStreet: '', customerPostalCode: '', customerCity: '', notes: '',
   })
   const [pricing, setPricing] = useState(null)
 
@@ -59,7 +73,12 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
           customerName: quote.customerName || '',
           customerEmail: quote.customerEmail || '',
           customerPhone: quote.customerPhone || '',
+          customerType: quote.customerType || 'particulier',
           customerCompany: quote.customerCompany || '',
+          customerVatNumber: quote.customerVatNumber || '',
+          customerStreet: quote.customerStreet || '',
+          customerPostalCode: quote.customerPostalCode || '',
+          customerCity: quote.customerCity || '',
           notes: quote.notes || '',
         })
       } catch (err) {
@@ -81,8 +100,8 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   }, [vehicle, selectedAccessories, discountType, discountValue])
 
   const handleSave = async () => {
-    if (!customerInfo.customerName) {
-      setError('Naam is verplicht')
+    if (!isCustomerInfoComplete(customerInfo)) {
+      setError('Vul alle verplichte klantgegevens in')
       return
     }
     try {

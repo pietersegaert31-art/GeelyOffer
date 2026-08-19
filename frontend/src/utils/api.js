@@ -165,6 +165,12 @@ export const api = {
     return request(`/branches/${id}`, { method: 'PUT', body: JSON.stringify(branchData) })
   },
 
+  // VAT number lookup (VIES, sourced from the KBO for Belgian numbers) — used to
+  // auto-fill a company's name and address on the customer form
+  async lookupVat(vatNumber) {
+    return request(`/vat-lookup/${encodeURIComponent(vatNumber)}`)
+  },
+
   // Audit log
   async getAuditLog({ entityType = '', entityId = '', page = 1, limit = 50 } = {}) {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) })
