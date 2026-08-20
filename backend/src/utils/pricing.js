@@ -28,12 +28,19 @@ export function validatePricingInputs(basePrice, accessoriesPrice, discountType,
 //
 // discountType is either 'percentage' (discountValue is 0-100) or 'fixed' (discountValue is a
 // flat euro amount, e.g. a campaign discount) — a fixed discount is capped at the pre-discount
-// subtotal so a quote can never go negative.
-export function calculatePricing(basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0) {
+// discountable amount so a quote can never go negative.
+//
+// mandatoryAccessoriesPrice is the portion of accessoriesPrice that's a mandatory fee (e.g. the
+// delivery pack) rather than a negotiable option — it's included in subtotalBeforeDiscount and
+// the final total like everything else, but excluded from what the discount percentage/amount
+// is calculated against, matching how the dealership's other quoting tool treats it: a discount
+// reduces the vehicle price and chosen options, never the flat handling fee.
+export function calculatePricing(basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0, mandatoryAccessoriesPrice = 0) {
   const subtotalBeforeDiscount = basePrice + accessoriesPrice; // incl. BTW
+  const discountableAmount = Math.max(0, subtotalBeforeDiscount - mandatoryAccessoriesPrice);
   const discountAmount = discountType === 'fixed'
-    ? Math.min(discountValue, subtotalBeforeDiscount)
-    : (subtotalBeforeDiscount * discountValue) / 100;
+    ? Math.min(discountValue, discountableAmount)
+    : (discountableAmount * discountValue) / 100;
   const totalInclVat = subtotalBeforeDiscount - discountAmount;
   const totalExclVat = totalInclVat / (1 + VAT_RATE);
   const vat = totalInclVat - totalExclVat;

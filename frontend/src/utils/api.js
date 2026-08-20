@@ -131,10 +131,10 @@ export const api = {
   },
 
   // Pricing
-  async calculatePricing(basePrice, accessoriesPrice, discountType, discountValue) {
+  async calculatePricing(basePrice, accessoriesPrice, discountType, discountValue, mandatoryAccessoriesPrice = 0) {
     return request('/pricing/calculate', {
       method: 'POST',
-      body: JSON.stringify({ basePrice, accessoriesPrice, discountType, discountValue }),
+      body: JSON.stringify({ basePrice, accessoriesPrice, discountType, discountValue, mandatoryAccessoriesPrice }),
     })
   },
   async getDiscountTier(quantity) {

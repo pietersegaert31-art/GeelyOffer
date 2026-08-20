@@ -8,7 +8,7 @@ router.use(requireAuth, blockPendingPasswordChange);
 // Calculate pricing
 router.post('/calculate', (req, res) => {
   try {
-    const { basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0 } = req.body;
+    const { basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0, mandatoryAccessoriesPrice = 0 } = req.body;
 
     if (!basePrice) {
       return res.status(400).json({ error: 'Base price is required' });
@@ -19,7 +19,7 @@ router.post('/calculate', (req, res) => {
       return res.status(400).json({ error: validationError });
     }
 
-    const pricing = calculatePricing(basePrice, accessoriesPrice, discountType, discountValue);
+    const pricing = calculatePricing(basePrice, accessoriesPrice, discountType, discountValue, mandatoryAccessoriesPrice);
     res.json(pricing);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -166,11 +166,13 @@ function QuoteBuilder({ onQuoteCreated }) {
 
     try {
       const accessoriesTotal = selectedAccessories.reduce((sum, acc) => sum + acc.price, 0)
+      const mandatoryAccessoriesTotal = selectedAccessories.filter((acc) => acc.mandatory).reduce((sum, acc) => sum + acc.price, 0)
       const pricingData = await api.calculatePricing(
         selectedVariant.basePrice,
         accessoriesTotal,
         discountType,
-        discountValue
+        discountValue,
+        mandatoryAccessoriesTotal
       )
       setPricing(pricingData)
     } catch (err) {

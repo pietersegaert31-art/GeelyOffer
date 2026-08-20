@@ -122,7 +122,8 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   useEffect(() => {
     if (!vehicle) return
     const accessoriesTotal = selectedAccessories.reduce((sum, acc) => sum + acc.price, 0)
-    api.calculatePricing(vehicle.basePrice, accessoriesTotal, discountType, discountValue)
+    const mandatoryAccessoriesTotal = selectedAccessories.filter((acc) => acc.mandatory).reduce((sum, acc) => sum + acc.price, 0)
+    api.calculatePricing(vehicle.basePrice, accessoriesTotal, discountType, discountValue, mandatoryAccessoriesTotal)
       .then(setPricing)
       .catch((err) => setError('Kon prijs niet berekenen: ' + err.message))
   }, [vehicle, selectedAccessories, discountType, discountValue])

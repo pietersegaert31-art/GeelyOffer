@@ -392,6 +392,7 @@ router.post('/', async (req, res) => {
     const basePrice = vehicle.basePrice;
 
     const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
+    const mandatoryAccessoriesTotal = mandatoryAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
     const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories);
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
 
@@ -400,8 +401,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: validationError });
     }
 
-    // Calculate pricing
-    const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue);
+    // Calculate pricing — mandatory accessories (e.g. the delivery pack) are priced in full
+    // but excluded from the discount base, see calculatePricing's docs.
+    const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue, mandatoryAccessoriesTotal);
     const discountApprovalStatus = computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
     const branch = await resolveActorBranch(req.user);
 
@@ -677,10 +679,15 @@ router.put('/:id', async (req, res) => {
     }
 
     const basePrice = quote.basePrice;
+    // Needed on every save (not just when accessories are resubmitted) since pricing —
+    // and specifically which portion of it is exempt from the discount — is recalculated
+    // unconditionally below, even for edits that only touch the discount or customer info.
+    const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
+    const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
+    const mandatoryAccessoriesTotal = mandatoryAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
+
     let resolvedAccessories = null;
     if (accessories) {
-      const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
-      const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
       resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle?.name), mandatoryAccessories);
     }
     const accessoriesTotal = resolvedAccessories
@@ -696,7 +703,9 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: validationError });
     }
 
-    const pricing = calculatePricing(basePrice, accessoriesTotal, resolvedDiscountType, resolvedDiscountValue);
+    // Mandatory accessories (e.g. the delivery pack) are priced in full but excluded from
+    // the discount base, see calculatePricing's docs.
+    const pricing = calculatePricing(basePrice, accessoriesTotal, resolvedDiscountType, resolvedDiscountValue, mandatoryAccessoriesTotal);
 
     // Only re-run the approval gate if the discount itself actually changed — otherwise
     // an unrelated edit (e.g. fixing a typo in the customer's name) by the original rep
