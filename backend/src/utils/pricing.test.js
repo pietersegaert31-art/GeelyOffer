@@ -56,7 +56,7 @@ describe('calculatePricing', () => {
     assert.equal(result.total, 949);
   });
 
-  describe('mandatory accessories (e.g. the delivery pack) are excluded from the discount base', () => {
+  describe('non-discountable accessories (mandatory fees, or standalone add-ons like a towing hook) are excluded from the discount base', () => {
     test('regression test for the real E5 PRO+ discrepancy this was reported against', () => {
       // Geely E5 PRO+ (38490) + one paint option (650) + mandatory delivery pack (949),
       // 13% discount — matches the dealership's other quoting tool: (38490 + 650) * 0.87 + 949.
@@ -65,7 +65,15 @@ describe('calculatePricing', () => {
       assert.equal(result.total, 35000.8);
     });
 
-    test('with no mandatory portion, behaves exactly as before (discount applies to everything)', () => {
+    test('an optional (non-mandatory) but non-discountable accessory, like a towing hook, is excluded the same way', () => {
+      // Geely E5 PRO+ (38490) + a towing hook (954.68, optional but never discounted) +
+      // a paint option (650, discountable), 13% discount.
+      const result = calculatePricing(38490, 1604.68, 'percentage', 13, 954.68);
+      assert.equal(result.discountAmount, 5088.2); // 13% of (38490 + 650), the towing hook is untouched
+      assert.equal(result.total, 35006.48);
+    });
+
+    test('with no non-discountable portion, behaves exactly as before (discount applies to everything)', () => {
       const result = calculatePricing(37490, 650, 'percentage', 10, 0);
       assert.equal(result.discountAmount, 3814);
       assert.equal(result.total, 34326);

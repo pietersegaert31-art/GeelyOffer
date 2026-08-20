@@ -56,9 +56,15 @@ const ACCESSORY_PREFIXES_FR = [
   ['Metallic:', 'Métallisé :'],
 ];
 
+// Accessory names with no recognizable prefix pattern to swap — translated by exact match.
+const ACCESSORY_NAME_EXACT_FR = {
+  'Delivery Pack': 'Pack de livraison',
+  'Trekhaak': 'Attache-remorque',
+};
+
 export function translateAccessoryName(name, lang) {
   if (resolveLang(lang) !== 'fr' || !name) return name;
-  if (name === 'Delivery Pack') return 'Pack de livraison';
+  if (ACCESSORY_NAME_EXACT_FR[name]) return ACCESSORY_NAME_EXACT_FR[name];
   for (const [nl, fr] of ACCESSORY_PREFIXES_FR) {
     if (name.startsWith(nl)) return fr + name.slice(nl.length);
   }

@@ -16,6 +16,7 @@ function toPublicAccessory(row) {
     vehicleModels: JSON.parse(row.vehicleModels || '[]'),
     active: !!row.active,
     mandatory: !!row.mandatory,
+    discountable: !!row.discountable,
     colorHex: row.colorHex || null,
   };
 }
@@ -53,15 +54,15 @@ router.get('/', async (req, res) => {
 // Create a new accessory (admin or sales manager)
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { name, price, category, vehicleModels = [], mandatory = false, colorHex } = req.body;
+    const { name, price, category, vehicleModels = [], mandatory = false, discountable = true, colorHex } = req.body;
     if (!name || !category || !Number.isFinite(price) || price < 0) {
       return res.status(400).json({ error: 'name, category en een geldige price zijn verplicht' });
     }
 
     const id = uuidv4();
     await runAsync(
-      'INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, colorHex) VALUES (?, ?, ?, ?, ?, 1, ?, ?)',
-      [id, name, price, category, JSON.stringify(vehicleModels), mandatory ? 1 : 0, normalizeColorHex(colorHex) ?? null]
+      'INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable, colorHex) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)',
+      [id, name, price, category, JSON.stringify(vehicleModels), mandatory ? 1 : 0, discountable ? 1 : 0, normalizeColorHex(colorHex) ?? null]
     );
 
     const row = await getAsync('SELECT * FROM accessories WHERE id = ?', [id]);
@@ -86,14 +87,14 @@ router.put('/:id', requireManager, async (req, res) => {
       return res.status(404).json({ error: 'Optie niet gevonden' });
     }
 
-    const { name, price, category, vehicleModels, active, mandatory, colorHex } = req.body;
+    const { name, price, category, vehicleModels, active, mandatory, discountable, colorHex } = req.body;
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) {
       return res.status(400).json({ error: 'price moet een niet-negatief getal zijn' });
     }
     const normalizedColorHex = normalizeColorHex(colorHex);
 
     await runAsync(
-      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, active = ?, mandatory = ?, colorHex = ? WHERE id = ?',
+      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, active = ?, mandatory = ?, discountable = ?, colorHex = ? WHERE id = ?',
       [
         name ?? existing.name,
         price ?? existing.price,
@@ -101,6 +102,7 @@ router.put('/:id', requireManager, async (req, res) => {
         vehicleModels ? JSON.stringify(vehicleModels) : existing.vehicleModels,
         active === undefined ? existing.active : (active ? 1 : 0),
         mandatory === undefined ? existing.mandatory : (mandatory ? 1 : 0),
+        discountable === undefined ? existing.discountable : (discountable ? 1 : 0),
         normalizedColorHex === undefined ? existing.colorHex : normalizedColorHex,
         req.params.id,
       ]

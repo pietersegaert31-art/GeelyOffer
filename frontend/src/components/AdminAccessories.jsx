@@ -5,8 +5,8 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
   const [form, setForm] = useState(accessory ? {
     name: accessory.name, price: accessory.price, category: accessory.category,
     vehicleModels: accessory.vehicleModels, active: accessory.active, mandatory: accessory.mandatory,
-    colorHex: accessory.colorHex || '',
-  } : { name: '', price: '', category: '', vehicleModels: [], active: true, mandatory: false, colorHex: '' })
+    discountable: accessory.discountable, colorHex: accessory.colorHex || '',
+  } : { name: '', price: '', category: '', vehicleModels: [], active: true, mandatory: false, discountable: true, colorHex: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -33,6 +33,7 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
         vehicleModels: form.vehicleModels,
         active: form.active,
         mandatory: form.mandatory,
+        discountable: form.discountable,
         colorHex: form.colorHex || null,
       }
       if (accessory) {
@@ -113,6 +114,12 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
               <input type="checkbox" checked={form.mandatory} onChange={(e) => set('mandatory', e.target.checked)} style={{ width: '16px', height: '16px' }} />
               Verplicht (wordt altijd toegevoegd, klant kan ze niet uitvinken)
+            </label>
+          </div>
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none' }}>
+              <input type="checkbox" checked={form.discountable} onChange={(e) => set('discountable', e.target.checked)} style={{ width: '16px', height: '16px' }} />
+              Korting van toepassing (uitvinken voor een vaste toeslag of accessoire dat nooit wordt afgeprijsd, zoals een trekhaak)
             </label>
           </div>
           <div className="btn-group">
@@ -204,6 +211,7 @@ function AdminAccessories() {
                   <td>
                     <span className={`badge ${acc.active ? 'sent' : 'draft'}`}>{acc.active ? 'Actief' : 'Inactief'}</span>
                     {acc.mandatory && <span className="badge declined" style={{ marginLeft: '6px' }}>Verplicht</span>}
+                    {!acc.discountable && <span className="badge expiry-soon" style={{ marginLeft: '6px' }}>Geen korting</span>}
                   </td>
                   <td>
                     <div className="row-actions">

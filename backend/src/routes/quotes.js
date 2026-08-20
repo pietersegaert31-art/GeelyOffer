@@ -105,7 +105,7 @@ async function resolveAccessories(items, vehicleName) {
       throw error;
     }
     const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
-    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category });
+    resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category, discountable: !!accessory.discountable });
   }
 
   return resolved;
@@ -120,7 +120,7 @@ async function resolveMandatoryAccessories(vehicleName) {
   const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
   return rows
     .filter((row) => JSON.parse(row.vehicleModels || '[]').includes(vehicleName))
-    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category }));
+    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable }));
 }
 
 // Merges resolved client accessories with the vehicle's mandatory ones, the client's
@@ -404,18 +404,21 @@ router.post('/', async (req, res) => {
     const basePrice = vehicle.basePrice;
 
     const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
-    const mandatoryAccessoriesTotal = mandatoryAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
     const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories);
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
+    const nonDiscountableAccessoriesTotal = resolvedAccessories
+      .filter((acc) => !acc.discountable)
+      .reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
 
     const validationError = validatePricingInputs(basePrice, accessoriesTotal, discountType, discountValue);
     if (validationError) {
       return res.status(400).json({ error: validationError });
     }
 
-    // Calculate pricing — mandatory accessories (e.g. the delivery pack) are priced in full
-    // but excluded from the discount base, see calculatePricing's docs.
-    const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue, mandatoryAccessoriesTotal);
+    // Calculate pricing — non-discountable accessories (mandatory fees, or "true"
+    // accessories like a towing hook) are priced in full but excluded from the discount
+    // base, see calculatePricing's docs.
+    const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue, nonDiscountableAccessoriesTotal);
     const discountApprovalStatus = computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
     const branch = await resolveActorBranch(req.user);
     const sequenceNumber = await nextSequenceNumber();
@@ -470,9 +473,9 @@ router.post('/', async (req, res) => {
     for (const acc of resolvedAccessories) {
       const itemId = uuidv4();
       await runAsync(
-        `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [itemId, id, acc.name, acc.quantity, acc.price, acc.quantity * acc.price]
+        `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice, discountable)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [itemId, id, acc.name, acc.quantity, acc.price, acc.quantity * acc.price, acc.discountable ? 1 : 0]
       );
     }
 
@@ -560,8 +563,8 @@ router.post('/:id/duplicate', async (req, res) => {
 
     for (const item of sourceItems) {
       await runAsync(
-        `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice) VALUES (?, ?, ?, ?, ?, ?)`,
-        [uuidv4(), id, item.itemName, item.quantity, item.unitPrice, item.totalPrice]
+        `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice, discountable) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [uuidv4(), id, item.itemName, item.quantity, item.unitPrice, item.totalPrice, item.discountable]
       );
     }
 
@@ -704,7 +707,6 @@ router.put('/:id', async (req, res) => {
     // unconditionally below, even for edits that only touch the discount or customer info.
     const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
     const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
-    const mandatoryAccessoriesTotal = mandatoryAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
 
     let resolvedAccessories = null;
     if (accessories) {
@@ -713,6 +715,16 @@ router.put('/:id', async (req, res) => {
     const accessoriesTotal = resolvedAccessories
       ? resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0)
       : quote.accessories;
+    // If accessories weren't resubmitted, the discountable flag of each existing line has
+    // to come from what was actually snapshotted onto quote_items when it was added — not
+    // re-derived from the current catalog, which might have since changed or removed that
+    // item entirely.
+    const nonDiscountableAccessoriesTotal = resolvedAccessories
+      ? resolvedAccessories.filter((acc) => !acc.discountable).reduce((sum, acc) => sum + acc.price * acc.quantity, 0)
+      : (await getAsync(
+          'SELECT COALESCE(SUM(unitPrice * quantity), 0) AS total FROM quote_items WHERE quoteId = ? AND discountable = 0',
+          [quoteId]
+        )).total;
     const resolvedDiscountType = discountType !== undefined ? discountType : quote.discountType;
     const resolvedDiscountValue = discountValue !== undefined
       ? discountValue
@@ -723,9 +735,10 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: validationError });
     }
 
-    // Mandatory accessories (e.g. the delivery pack) are priced in full but excluded from
-    // the discount base, see calculatePricing's docs.
-    const pricing = calculatePricing(basePrice, accessoriesTotal, resolvedDiscountType, resolvedDiscountValue, mandatoryAccessoriesTotal);
+    // Non-discountable accessories (mandatory fees, or "true" accessories like a towing
+    // hook) are priced in full but excluded from the discount base, see calculatePricing's
+    // docs.
+    const pricing = calculatePricing(basePrice, accessoriesTotal, resolvedDiscountType, resolvedDiscountValue, nonDiscountableAccessoriesTotal);
 
     // Only re-run the approval gate if the discount itself actually changed — otherwise
     // an unrelated edit (e.g. fixing a typo in the customer's name) by the original rep
@@ -792,9 +805,9 @@ router.put('/:id', async (req, res) => {
       for (const acc of resolvedAccessories) {
         const itemId = uuidv4();
         await runAsync(
-          `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [itemId, quoteId, acc.name, acc.quantity, acc.price, acc.quantity * acc.price]
+          `INSERT INTO quote_items (id, quoteId, itemName, quantity, unitPrice, totalPrice, discountable)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [itemId, quoteId, acc.name, acc.quantity, acc.price, acc.quantity * acc.price, acc.discountable ? 1 : 0]
         );
       }
     }

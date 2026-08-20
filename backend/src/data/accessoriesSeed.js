@@ -29,4 +29,9 @@ export const STANDARD_ACCESSORIES = [
   { id: 'emi-paint-jungle', name: 'Metallic: Jungle Green', price: 650, category: 'exterior', vehicleModels: ['Starray EM-i'], colorHex: '#2F4B3C' },
   // Starray EM-i - Upholstery
   { id: 'emi-upholstery-amber', name: 'Bekleding: Amber Brown TEP-leder', price: 500, category: 'interior', vehicleModels: ['Starray EM-i'] }
+  // Towing hook ("Trekhaak") is deliberately NOT listed here — like the mandatory
+  // Delivery Pack, it's seeded exclusively via seedTowingHookIfMissing() in
+  // database/init.js, which runs on every boot (fresh or existing). Listing an id in both
+  // places races seedAccessoriesIfEmpty against it on a brand-new database — both would
+  // try to insert the same id and the second one crashes on a UNIQUE constraint violation.
 ];

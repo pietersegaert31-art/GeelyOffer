@@ -30,14 +30,16 @@ export function validatePricingInputs(basePrice, accessoriesPrice, discountType,
 // flat euro amount, e.g. a campaign discount) — a fixed discount is capped at the pre-discount
 // discountable amount so a quote can never go negative.
 //
-// mandatoryAccessoriesPrice is the portion of accessoriesPrice that's a mandatory fee (e.g. the
-// delivery pack) rather than a negotiable option — it's included in subtotalBeforeDiscount and
-// the final total like everything else, but excluded from what the discount percentage/amount
-// is calculated against, matching how the dealership's other quoting tool treats it: a discount
-// reduces the vehicle price and chosen options, never the flat handling fee.
-export function calculatePricing(basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0, mandatoryAccessoriesPrice = 0) {
+// nonDiscountableAccessoriesPrice is the portion of accessoriesPrice that's excluded from
+// the discount — a mandatory fee (e.g. the delivery pack) or a "true accessory" bolted on
+// separately (e.g. a towing hook), as opposed to a negotiable configuration choice (paint,
+// upholstery). It's still included in subtotalBeforeDiscount and the final total like
+// everything else, just not in what the discount percentage/amount is calculated against —
+// matching how the dealership's other quoting tool treats these: a discount reduces the
+// vehicle price and its configuration options, never a flat fee or bolt-on accessory.
+export function calculatePricing(basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0, nonDiscountableAccessoriesPrice = 0) {
   const subtotalBeforeDiscount = basePrice + accessoriesPrice; // incl. BTW
-  const discountableAmount = Math.max(0, subtotalBeforeDiscount - mandatoryAccessoriesPrice);
+  const discountableAmount = Math.max(0, subtotalBeforeDiscount - nonDiscountableAccessoriesPrice);
   const discountAmount = discountType === 'fixed'
     ? Math.min(discountValue, discountableAmount)
     : (discountableAmount * discountValue) / 100;

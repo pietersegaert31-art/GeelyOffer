@@ -97,8 +97,8 @@ function seedDeliveryPackIfMissing(database) {
       if (row) return;
 
       database.run(
-        `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory)
-         VALUES (?, ?, ?, ?, ?, 1, 1)`,
+        `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable)
+         VALUES (?, ?, ?, ?, ?, 1, 1, 0)`,
         [id, 'Delivery Pack', DELIVERY_PACK_PRICE_INCL_VAT, 'verplicht', JSON.stringify([vehicleModel])],
         (insertErr) => {
           if (insertErr) {
@@ -109,6 +109,37 @@ function seedDeliveryPackIfMissing(database) {
         }
       );
     });
+  });
+}
+
+// Runs on every boot (same reasoning as seedDeliveryPackIfMissing above) so this optional
+// accessory reaches databases that were already seeded before it existed. Price entered
+// as €788,99 excl. BTW by the business — stored incl. 21% BTW (€954,68). One row covers
+// both models since nothing about it differs by model. Optional (mandatory = 0, a
+// customer chooses it) but still excluded from the vehicle discount (discountable = 0),
+// same as the mandatory delivery pack — a "true accessory" bolted on at full price
+// regardless of any negotiated discount on the car itself.
+function seedTowingHookIfMissing(database) {
+  const TOWING_HOOK_PRICE_INCL_VAT = 954.68;
+  database.get('SELECT id FROM accessories WHERE id = ?', ['towing-hook'], (err, row) => {
+    if (err) {
+      console.error('Error checking for towing-hook seed row:', err);
+      return;
+    }
+    if (row) return;
+
+    database.run(
+      `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable)
+       VALUES (?, ?, ?, ?, ?, 1, 0, 0)`,
+      ['towing-hook', 'Trekhaak', TOWING_HOOK_PRICE_INCL_VAT, 'techniek', JSON.stringify(['Geely E5', 'Starray EM-i'])],
+      (insertErr) => {
+        if (insertErr) {
+          console.error('Failed to seed towing-hook:', insertErr.message);
+          return;
+        }
+        console.log('✓ Added Trekhaak (towing hook) accessory');
+      }
+    );
   });
 }
 
@@ -169,6 +200,23 @@ function fixAccessoryColorDataIfStale(database) {
       [acc.colorHex, acc.id]
     );
   });
+}
+
+// The discountable column defaults new rows to 1 (discountable), which is wrong for the
+// mandatory delivery pack rows already sitting in an existing database from before this
+// column existed — those need to flip to 0. Every mandatory accessory happens to be
+// non-discountable in this catalog, so keying off `mandatory` here (rather than hardcoding
+// the delivery pack's ids) also automatically covers any future mandatory fee.
+function backfillAccessoryDiscountableIfMissing(database) {
+  database.run(`UPDATE accessories SET discountable = 0 WHERE mandatory = 1`);
+}
+
+// Mirrors the accessories backfill above, but for the quote_items already written against
+// those mandatory rows before this column existed — matched by name (the delivery pack's
+// name is a fixed constant), since quote_items has no link back to the accessories catalog
+// to join against.
+function backfillQuoteItemDiscountableIfMissing(database) {
+  database.run(`UPDATE quote_items SET discountable = 0 WHERE itemName = 'Delivery Pack'`);
 }
 
 // Quotes that reached 'sent' before the sentAt column existed would otherwise never
@@ -328,6 +376,13 @@ export function initializeDatabase() {
     // for color-style accessories), shown as a small preview circle so a customer gets
     // an idea of the shade without needing to see the physical car.
     addColumnIfMissing(database, 'accessories', 'colorHex', 'TEXT');
+    // Whether a discount percentage/amount applies to this item's price at all — distinct
+    // from `mandatory` (whether it's auto-added and non-removable). The delivery pack is
+    // both mandatory AND non-discountable; a towing hook is optional but ALSO
+    // non-discountable (a customer picks it, but a negotiated vehicle discount never
+    // reduces its price) — see calculatePricing in utils/pricing.js. Defaults to true so
+    // every pre-existing accessory (paint, upholstery) keeps behaving exactly as before.
+    addColumnIfMissing(database, 'accessories', 'discountable', 'BOOLEAN DEFAULT 1');
 
     // Quotes table
     database.run(`
@@ -438,6 +493,12 @@ export function initializeDatabase() {
         FOREIGN KEY (quoteId) REFERENCES quotes(id) ON DELETE CASCADE
       )
     `);
+    // Snapshotted from the accessory's discountable flag at the time this line was added
+    // to the quote (same reasoning as unitPrice/itemName already being snapshots rather
+    // than live lookups) — lets an edit that doesn't resubmit accessories still know which
+    // of a quote's existing lines are excluded from the discount, without re-deriving it
+    // from a catalog item that might since have changed or been deleted.
+    addColumnIfMissing(database, 'quote_items', 'discountable', 'BOOLEAN DEFAULT 1');
 
     // Pricing tiers table
     database.run(`
@@ -680,6 +741,9 @@ export function initializeDatabase() {
     seedAccessoriesIfEmpty(database);
     fixAccessoryColorDataIfStale(database);
     seedDeliveryPackIfMissing(database);
+    seedTowingHookIfMissing(database);
+    backfillAccessoryDiscountableIfMissing(database);
+    backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);
     backfillCreatedByEmailIfMissing(database);
     backfillSequenceNumberIfMissing(database);
