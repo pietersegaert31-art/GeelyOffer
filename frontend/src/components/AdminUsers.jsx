@@ -72,6 +72,39 @@ function UserFormModal({ branches, onClose, onSaved }) {
   )
 }
 
+// Inline-editable e-mail cell — commits on blur (rather than every keystroke, like the
+// role/branch dropdowns do) since a partially-typed e-mail address isn't a valid save.
+// Local state so typing doesn't fight the table's own re-renders; resyncs from the saved
+// value on success, or snaps back to it if the save is rejected (e.g. duplicate e-mail).
+function EmailCell({ user, onSave }) {
+  const [value, setValue] = useState(user.email)
+
+  useEffect(() => { setValue(user.email) }, [user.email])
+
+  const commit = async () => {
+    const trimmed = value.trim().toLowerCase()
+    if (!trimmed || trimmed === user.email) {
+      setValue(user.email)
+      return
+    }
+    try {
+      await onSave(trimmed)
+    } catch {
+      setValue(user.email)
+    }
+  }
+
+  return (
+    <input
+      type="email"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      style={{ padding: '5px 8px', fontSize: '0.76rem', width: '100%' }}
+    />
+  )
+}
+
 function AdminUsers() {
   const { user: currentUser } = useAuth()
   const [users, setUsers] = useState([])
@@ -125,6 +158,16 @@ function AdminUsers() {
     }
   }
 
+  const handleEmailChange = async (u, email) => {
+    try {
+      await api.updateUser(u.id, { email })
+      load()
+    } catch (err) {
+      alert(err.message)
+      throw err
+    }
+  }
+
   const handleDelete = async (u) => {
     if (!window.confirm(`Account van ${u.name} verwijderen?`)) return
     try {
@@ -163,7 +206,7 @@ function AdminUsers() {
               {users.map((u) => (
                 <tr key={u.id}>
                   <td style={{ fontWeight: 700 }}>{u.name}{u.id === currentUser.id && <span style={{ color: 'var(--muted-soft)', fontWeight: 400 }}> (jij)</span>}</td>
-                  <td>{u.email}</td>
+                  <td><EmailCell user={u} onSave={(email) => handleEmailChange(u, email)} /></td>
                   <td>
                     <select
                       value={u.role}

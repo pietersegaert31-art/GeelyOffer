@@ -63,10 +63,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update a colleague (name, role, active, optional password reset)
+// Update a colleague (name, e-mail, role, active, branch, optional password reset)
 router.put('/:id', async (req, res) => {
   try {
-    const { name, role, active, password, branchId } = req.body;
+    const { name, email, role, active, password, branchId } = req.body;
     const user = await getAsync('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!user) {
       return res.status(404).json({ error: 'Gebruiker niet gevonden' });
@@ -78,6 +78,19 @@ router.put('/:id', async (req, res) => {
       const branchError = await validateBranchId(branchId);
       if (branchError) {
         return res.status(400).json({ error: branchError });
+      }
+    }
+    let normalizedEmail = user.email;
+    if (email !== undefined) {
+      normalizedEmail = String(email).trim().toLowerCase();
+      if (!normalizedEmail) {
+        return res.status(400).json({ error: 'E-mail mag niet leeg zijn' });
+      }
+      if (normalizedEmail !== user.email) {
+        const existing = await getAsync('SELECT id FROM users WHERE email = ? AND id != ?', [normalizedEmail, req.params.id]);
+        if (existing) {
+          return res.status(409).json({ error: 'Er bestaat al een gebruiker met dit e-mailadres' });
+        }
       }
     }
 
@@ -95,9 +108,10 @@ router.put('/:id', async (req, res) => {
     const passwordHash = password ? bcrypt.hashSync(password, 12) : user.passwordHash;
 
     await runAsync(
-      'UPDATE users SET name = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ?, branchId = ? WHERE id = ?',
+      'UPDATE users SET name = ?, email = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ?, branchId = ? WHERE id = ?',
       [
         name ?? user.name,
+        normalizedEmail,
         role ?? user.role,
         active === undefined ? user.active : (active ? 1 : 0),
         passwordHash,
