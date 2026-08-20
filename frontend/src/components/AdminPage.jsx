@@ -23,7 +23,10 @@ const ALL_TABS = [
 
 function AdminPage() {
   const { user } = useAuth()
-  const isAdmin = user.role === 'admin'
+  // Sales managers have full admin-equivalent access by business decision (see
+  // backend/src/middleware/auth.js requireAdmin) — this mirrors that on the frontend so
+  // they can actually reach the screens the backend already lets them use.
+  const isAdmin = user.role === 'admin' || user.role === 'sales_manager'
   const tabs = ALL_TABS.filter((t) => isAdmin || !t.adminOnly)
   const [tab, setTab] = useState(isAdmin ? 'vehicles' : 'accessories')
 

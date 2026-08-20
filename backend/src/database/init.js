@@ -180,6 +180,17 @@ function backfillSentAtIfMissing(database) {
   database.run(`UPDATE quotes SET sentAt = updatedAt WHERE status = 'sent' AND sentAt IS NULL`);
 }
 
+// Quotes created before createdByEmail existed would otherwise show no salesperson
+// e-mail on their PDF until someone re-saves them — backfilled from the current user
+// record (a one-time best-effort join, not a live lookup) so already-sent quotes get it
+// too. A quote whose creator account was since deleted just stays without one.
+function backfillCreatedByEmailIfMissing(database) {
+  database.run(`
+    UPDATE quotes SET createdByEmail = (SELECT email FROM users WHERE users.id = quotes.createdBy)
+    WHERE createdByEmail IS NULL AND createdBy IS NOT NULL
+  `);
+}
+
 function bootstrapAdminIfNoUsers(database) {
   database.get('SELECT COUNT(*) AS count FROM users', (err, row) => {
     if (err) {
@@ -325,6 +336,10 @@ export function initializeDatabase() {
     // Migrations for columns added after the original release
     addColumnIfMissing(database, 'quotes', 'createdBy', 'TEXT');
     addColumnIfMissing(database, 'quotes', 'createdByName', 'TEXT');
+    // Snapshotted alongside createdByName so the PDF can show the salesperson's contact
+    // e-mail without a join — same reasoning as branchName/branchAddress below: it should
+    // read the same on the PDF even if that colleague's account e-mail later changes.
+    addColumnIfMissing(database, 'quotes', 'createdByEmail', 'TEXT');
     // Snapshotted from the creating user's branch at creation time — not a live FK
     // lookup, so it stays accurate on the PDF even if that user later moves branches.
     addColumnIfMissing(database, 'quotes', 'branchId', 'TEXT');
@@ -639,6 +654,7 @@ export function initializeDatabase() {
     fixAccessoryColorDataIfStale(database);
     seedDeliveryPackIfMissing(database);
     backfillSentAtIfMissing(database);
+    backfillCreatedByEmailIfMissing(database);
     bootstrapAdminIfNoUsers(database);
 
     console.log('✓ Database tables initialized');

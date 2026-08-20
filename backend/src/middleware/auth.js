@@ -34,9 +34,15 @@ export function blockPendingPasswordChange(req, res, next) {
   next();
 }
 
+// Sales managers get the same access as admins by business decision — the only thing
+// that still distinguishes the 'admin' role itself is the label shown in the UI (see
+// ROLE_LABELS), not any gated action. Kept as a separate function from requireManager
+// (which every route below already treats as identical to this) so a future actual
+// admin-only action has a natural, already-imported place to plug into without having to
+// touch every existing call site.
 export function requireAdmin(req, res, next) {
-  if (req.user?.role !== 'admin') {
-    return res.status(403).json({ error: 'Alleen beheerders hebben toegang tot deze actie' });
+  if (!['admin', 'sales_manager'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Alleen beheerders en sales managers hebben toegang tot deze actie' });
   }
   next();
 }

@@ -18,6 +18,11 @@ const VEHICLE_IMAGES = {
   'Starray EM-i': path.join(__dirname, '../assets/vehicles/starray-emi.jpg'),
 };
 
+// The legal entity actually issuing the quote (a Geely dealer) — distinct from "Geely",
+// the vehicle brand shown via the logo/imagery elsewhere on the PDF. Not per-branch or
+// per-quote data, so it's a plain constant rather than something stored on the quote.
+const SELLER_COMPANY = { name: 'ABS NV', vatNumber: 'BE0475949603' };
+
 // Same typeface as the web app (frontend/index.html) — kept as static weights rather
 // than the variable font, since pdfkit renders whatever instance it's given as-is.
 const FONT_DIR = path.join(__dirname, '../assets/fonts');
@@ -428,7 +433,8 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   if (quote.customerEmail) rightLines.push(quote.customerEmail);
   if (quote.customerPhone) rightLines.push(quote.customerPhone);
 
-  const leftLineCount = 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0); // offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres
+  const salespersonLineCount = quote.createdByName ? (quote.createdByEmail ? 2 : 1) : 0;
+  const leftLineCount = 1 + 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0) + salespersonLineCount; // aanbieder, + offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres, + verkoper naam/e-mail
   const cardHeight = Math.max(34 + leftLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
 
   doc.lineWidth(1);
@@ -439,6 +445,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.quoteInfoHeader, 56, cy, { characterSpacing: 1 });
   cy += 18;
   doc.fillColor('#000').fontSize(9).font('Inter');
+  doc.text(`${SELLER_COMPANY.name} · ${T.vatNumberLabel} ${SELLER_COMPANY.vatNumber}`, 56, cy); cy += 16;
   doc.text(`${T.quoteNumberLabel}: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
   doc.text(`${T.dateLabel}: ${formatDate(quote.createdAt, lang)}`, 56, cy); cy += 16;
   doc.text(`${T.validUntilLabel}: ${formatDate(quote.expiresAt, lang)}`, 56, cy);
@@ -451,6 +458,14 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     doc.fillColor('#000').fontSize(9).font('Inter').text(`${T.branchLabel}: ${quote.branchName}`, 56, cy);
     cy += 13;
     doc.fillColor('#666').fontSize(8).font('Inter').text(quote.branchAddress || '', 56, cy);
+  }
+  if (quote.createdByName) {
+    cy += 16;
+    doc.fillColor('#000').fontSize(9).font('Inter').text(`${T.salespersonLabel}: ${quote.createdByName}`, 56, cy);
+    if (quote.createdByEmail) {
+      cy += 13;
+      doc.fillColor('#666').fontSize(8).font('Inter').text(quote.createdByEmail, 56, cy);
+    }
   }
 
   let cy2 = cardY + 16;
