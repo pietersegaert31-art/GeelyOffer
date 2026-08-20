@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { formatPrice, formatDate, api } from '../utils/api'
+import { formatPrice, formatDate, formatQuoteNumber, api } from '../utils/api'
 import { STATUS_LABELS, QUOTE_STATUSES, DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import QuoteEditor from './QuoteEditor'
@@ -224,6 +224,7 @@ function QuoteList() {
                   <th style={{ width: '36px' }}>
                     <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} aria-label="Selecteer alle offertes" />
                   </th>
+                  <th>Nr.</th>
                   <th>Klant</th>
                   <th>Model</th>
                   <th>Totaal (incl. BTW)</th>
@@ -245,6 +246,7 @@ function QuoteList() {
                         aria-label={`Selecteer offerte van ${quote.customerName}`}
                       />
                     </td>
+                    <td style={{ fontSize: '0.8rem', color: '#697687', whiteSpace: 'nowrap' }}>{formatQuoteNumber(quote)}</td>
                     <td>
                       <div style={{ fontWeight: 700 }}>{quote.customerName}</div>
                       {quote.customerEmail && (

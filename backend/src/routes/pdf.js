@@ -8,6 +8,7 @@ import { getStandardEquipment } from '../data/standardEquipment.js';
 import { getTechnicalSpecs, getWarrantyInfo } from '../data/technicalSpecs.js';
 import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
 import { LOCALE, PDF, resolveLang, translateFuel, translateTransmission, powerUnit, fuelKicker, translateAccessoryName } from '../i18n/translate.js';
+import { formatQuoteNumber } from '../utils/quoteNumber.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.join(__dirname, '../assets/geely-logo.png');
@@ -446,7 +447,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   cy += 18;
   doc.fillColor('#000').fontSize(9).font('Inter');
   doc.text(`${SELLER_COMPANY.name} · ${T.vatNumberLabel} ${SELLER_COMPANY.vatNumber}`, 56, cy); cy += 16;
-  doc.text(`${T.quoteNumberLabel}: OFF-${quote.id.slice(0, 8).toUpperCase()}`, 56, cy); cy += 16;
+  doc.text(`${T.quoteNumberLabel}: ${formatQuoteNumber(quote)}`, 56, cy); cy += 16;
   doc.text(`${T.dateLabel}: ${formatDate(quote.createdAt, lang)}`, 56, cy); cy += 16;
   doc.text(`${T.validUntilLabel}: ${formatDate(quote.expiresAt, lang)}`, 56, cy);
   if (vehicle.deliveryEstimate) {
@@ -813,7 +814,7 @@ router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res
     const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.quoteId);
 
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
-    const filename = `${PDF[resolveLang(quote.language)].filenamePrefix}${quote.customerName.replace(/\s+/g, '_')}_${new Date().getTime()}.pdf`;
+    const filename = `${PDF[resolveLang(quote.language)].filenamePrefix}${formatQuoteNumber(quote)}_${quote.customerName.replace(/\s+/g, '_')}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

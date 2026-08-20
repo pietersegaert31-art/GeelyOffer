@@ -8,6 +8,17 @@ import { loadQuoteForPdf, generateQuotePdfBuffer } from './pdf.js';
 import { sendQuoteEmail } from '../utils/email.js';
 import { logAudit } from '../utils/auditLog.js';
 import { PDF, resolveLang } from '../i18n/translate.js';
+import { formatQuoteNumber } from '../utils/quoteNumber.js';
+
+// Next 0-based offer number — assigned once, at creation, from the current max. Not
+// wrapped in a transaction: at this app's scale (a handful of reps, SQLite has a single
+// writer anyway) two quotes created in the exact same instant colliding on a number is a
+// cosmetic risk, not a correctness one, and not worth the added complexity of a dedicated
+// counter table for.
+async function nextSequenceNumber() {
+  const row = await getAsync('SELECT COALESCE(MAX(sequenceNumber), -1) + 1 AS next FROM quotes');
+  return row.next;
+}
 
 const QUOTE_LANGUAGES = ['nl', 'fr'];
 
@@ -207,7 +218,7 @@ router.get('/', async (req, res) => {
 router.get('/export.csv', async (req, res) => {
   try {
     const quotes = await allAsync('SELECT * FROM quotes ORDER BY createdAt DESC');
-    const header = ['Klant', 'Type', 'E-mail', 'Telefoon', 'Adres', 'Bedrijf', 'BTW-nummer', 'Model', 'Status', 'Korting', 'Totaal excl. BTW', 'BTW', 'Totaal incl. BTW', 'Verkoper', 'Datum'];
+    const header = ['Offertenummer', 'Klant', 'Type', 'E-mail', 'Telefoon', 'Adres', 'Bedrijf', 'BTW-nummer', 'Model', 'Status', 'Korting', 'Totaal excl. BTW', 'BTW', 'Totaal incl. BTW', 'Verkoper', 'Datum'];
     const lines = [header.map(csvEscape).join(',')];
 
     quotes.forEach((q) => {
@@ -217,6 +228,7 @@ router.get('/export.csv', async (req, res) => {
         : (q.discountPercentage > 0 ? `${q.discountPercentage}%` : '');
       const address = [q.customerStreet, [q.customerPostalCode, q.customerCity].filter(Boolean).join(' ')].filter(Boolean).join(', ');
       lines.push([
+        formatQuoteNumber(q),
         q.customerName,
         q.customerType === 'bedrijf' ? 'Bedrijf' : 'Particulier',
         q.customerEmail,
@@ -406,13 +418,15 @@ router.post('/', async (req, res) => {
     const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue, mandatoryAccessoriesTotal);
     const discountApprovalStatus = computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
     const branch = await resolveActorBranch(req.user);
+    const sequenceNumber = await nextSequenceNumber();
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
+        sequenceNumber,
         customerName,
         customerEmail || null,
         customerPhone || null,
@@ -501,12 +515,16 @@ router.post('/:id/duplicate', async (req, res) => {
     // Same reasoning as the approval re-evaluation above — the copy is attributed to
     // whoever is actually making it, not wherever the original happened to be made.
     const branch = await resolveActorBranch(req.user);
+    // A duplicate is a distinct new offer for tracking purposes — it gets its own fresh
+    // number rather than inheriting the source's, same as it already gets a fresh id.
+    const sequenceNumber = await nextSequenceNumber();
 
     await runAsync(
-      `INSERT INTO quotes (id, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
+      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
       [
         id,
+        sequenceNumber,
         `${source.customerName} (kopie)`,
         null,
         null,
@@ -588,7 +606,7 @@ router.post('/:id/send-email', async (req, res) => {
       vehicleLabel: `${vehicle.name} ${vehicle.model}`,
       salespersonName: quote.createdByName,
       pdfBuffer,
-      filename: `${PDF[resolveLang(quote.language)].filenamePrefix}${quote.customerName.replace(/\s+/g, '_')}.pdf`,
+      filename: `${PDF[resolveLang(quote.language)].filenamePrefix}${formatQuoteNumber(quote)}_${quote.customerName.replace(/\s+/g, '_')}.pdf`,
       acceptUrl,
       language: quote.language,
     });

@@ -278,6 +278,15 @@ export function formatPrice(price) {
   }).format(price)
 }
 
+// Mirrors backend/src/utils/quoteNumber.js's formatQuoteNumber exactly, so the number
+// shown in the quotes list is always the same one printed on that quote's PDF/filename.
+export function formatQuoteNumber(quote) {
+  if (Number.isInteger(quote.sequenceNumber)) {
+    return `OFF-${String(quote.sequenceNumber).padStart(4, '0')}`
+  }
+  return `OFF-${quote.id.slice(0, 8).toUpperCase()}`
+}
+
 // Geely's published prices are already VAT-inclusive (see backend calculatePricing) — the
 // excl.-BTW amount is derived by dividing back out the 21% rate, never added on top. Kept
 // here as the single source of truth so every place that shows an excl.-BTW price (variant

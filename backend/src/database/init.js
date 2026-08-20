@@ -191,6 +191,28 @@ function backfillCreatedByEmailIfMissing(database) {
   `);
 }
 
+// One-time assignment of a trackable 0-based offer number to quotes that predate the
+// sequenceNumber column, oldest first — new quotes get theirs immediately at creation
+// (see routes/quotes.js) as MAX(sequenceNumber)+1, so this only ever has work to do once,
+// on the first boot after this column was added. A plain fetch-then-update-per-row loop
+// rather than a single UPDATE, since portably assigning a running index to a set of rows
+// isn't expressible as one statement without SQL window-function support this codebase
+// doesn't otherwise rely on.
+function backfillSequenceNumberIfMissing(database) {
+  database.all(`SELECT id FROM quotes WHERE sequenceNumber IS NULL ORDER BY createdAt ASC`, (err, rows) => {
+    if (err) {
+      console.error('Error checking for quotes missing sequenceNumber:', err);
+      return;
+    }
+    rows.forEach((row, index) => {
+      database.run(`UPDATE quotes SET sequenceNumber = ? WHERE id = ?`, [index, row.id]);
+    });
+    if (rows.length > 0) {
+      console.log(`✓ Backfilled sequenceNumber for ${rows.length} existing quote(s)`);
+    }
+  });
+}
+
 function bootstrapAdminIfNoUsers(database) {
   database.get('SELECT COUNT(*) AS count FROM users', (err, row) => {
     if (err) {
@@ -397,6 +419,11 @@ export function initializeDatabase() {
     // the rep per quote based on the customer's preference. The internal app UI itself
     // stays Dutch-only for staff regardless of this value.
     addColumnIfMissing(database, 'quotes', 'language', "TEXT DEFAULT 'nl'");
+    // Human-trackable offer number ("OFF-0007"), assigned once at creation as
+    // MAX(sequenceNumber)+1 — see routes/quotes.js. Distinct from `id` (a UUID, used
+    // internally/in URLs but meaningless to read out over the phone or spot in a folder of
+    // downloaded PDFs). Backfilled for pre-existing quotes below, oldest first from 0.
+    addColumnIfMissing(database, 'quotes', 'sequenceNumber', 'INTEGER');
 
     // Quote Items (accessories/options) table
     database.run(`
@@ -655,6 +682,7 @@ export function initializeDatabase() {
     seedDeliveryPackIfMissing(database);
     backfillSentAtIfMissing(database);
     backfillCreatedByEmailIfMissing(database);
+    backfillSequenceNumberIfMissing(database);
     bootstrapAdminIfNoUsers(database);
 
     console.log('✓ Database tables initialized');
