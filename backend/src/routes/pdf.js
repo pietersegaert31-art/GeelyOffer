@@ -283,12 +283,30 @@ function drawSpecColumns(doc, sections, topY) {
 // Draws the three warranty/service tiles (fabrieksgarantie, batterijgarantie, pechhulp) —
 // same visual language as the cover page's price bar (rounded panel, vertical dividers).
 function drawWarrantyTiles(doc, tiles, y) {
-  const boxHeight = 130;
+  const colWidth = CONTENT_WIDTH / tiles.length;
+  const padding = 18;
+  const subtitleYOffset = 44;
+  const minBoxHeight = 130;
+
+  // Measured first (dry run, same approach as the equipment/spec columns above), so the
+  // box is always tall enough for the actual content — the fixed 130 this used to be
+  // assumed a single-line subtitle; a longer French subtitle can wrap to two lines (see
+  // subtitleY below), and content only a little longer than today's could otherwise spill
+  // past the rounded border while the box itself stayed the same height.
+  let contentHeight = 0;
+  tiles.forEach((tile, i) => {
+    const textWidth = colWidth - padding * (i === tiles.length - 1 ? 2 : 1.5);
+    doc.fontSize(10).font('Inter-SemiBold');
+    const subtitleHeight = doc.heightOfString(tile.subtitle, { width: textWidth });
+    doc.fontSize(8).font('Inter');
+    const bodyHeight = doc.heightOfString(tile.text, { width: textWidth });
+    contentHeight = Math.max(contentHeight, subtitleYOffset + subtitleHeight + 4 + bodyHeight);
+  });
+  const boxHeight = Math.max(minBoxHeight, contentHeight + 18);
+
   doc.lineWidth(1);
   doc.roundedRect(PAGE_LEFT, y, CONTENT_WIDTH, boxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 
-  const colWidth = CONTENT_WIDTH / tiles.length;
-  const padding = 18;
   tiles.forEach((tile, i) => {
     const x = PAGE_LEFT + i * colWidth;
     if (i > 0) {
@@ -300,11 +318,11 @@ function drawWarrantyTiles(doc, tiles, y) {
     doc.fillColor('#1F4E78').fontSize(20).font('Inter-Bold').text(tile.title, textX, y + 18, { width: textWidth });
 
     // Body text is positioned from the subtitle's measured height rather than a fixed
-    // +62 — the French subtitles are longer than their Dutch originals and can wrap to
+    // offset — the French subtitles are longer than their Dutch originals and can wrap to
     // two lines in this narrow a column, which a fixed single-line offset would let the
     // body text overlap.
     doc.fontSize(10).font('Inter-SemiBold');
-    const subtitleY = y + 44;
+    const subtitleY = y + subtitleYOffset;
     doc.fillColor('#000').text(tile.subtitle, textX, subtitleY, { width: textWidth });
     const subtitleHeight = doc.heightOfString(tile.subtitle, { width: textWidth });
 
@@ -516,7 +534,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   yPos += 18;
 
   if (quote.discountPercentage > 0) {
-    doc.text(T.discountLabel(quote.discountPercentage), 350, yPos, { width: 120 });
+    doc.text(T.discountLabel(quote.discountPercentage.toLocaleString(LOCALE[lang])), 350, yPos, { width: 120 });
     doc.text('-' + formatPrice(quote.discountAmount), 480, yPos, { width: 70, align: 'right' });
     yPos += 18;
   }
@@ -610,7 +628,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
 
     yPos += finBoxHeight + 4;
     doc.font('Inter').fontSize(7).fillColor('#999');
-    const financingDisclaimerText = T.financingDisclaimer(financing.annualRatePercent);
+    const financingDisclaimerText = T.financingDisclaimer(financing.annualRatePercent.toLocaleString(LOCALE[lang]));
     doc.text(financingDisclaimerText, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
     // Measured rather than a fixed +12 — the French disclaimer (longer than the Dutch
     // original) can wrap to two lines, and a fixed single-line increment would let the
