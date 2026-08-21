@@ -88,6 +88,10 @@ export const PDF = {
     deliveryTimeLabel: 'Levertijd',
     branchLabel: 'Vestiging',
     salespersonLabel: 'Verkoper',
+    // Appended to a non-discountable line's name in the pricing table (e.g. "Trekhaak
+    // (accessoire)") so a customer can see at a glance why a percentage discount didn't
+    // reduce that particular line.
+    nonDiscountableTag: 'accessoire',
     vatNumberLabel: 'BTW',
     priceDisclaimer: 'Alle vermelde prijzen zijn Geely-adviesprijzen, inclusief 21% BTW.',
     colDescription: 'Omschrijving',
@@ -144,6 +148,7 @@ export const PDF = {
     deliveryTimeLabel: 'Délai de livraison',
     branchLabel: 'Agence',
     salespersonLabel: 'Vendeur',
+    nonDiscountableTag: 'accessoire',
     vatNumberLabel: 'TVA',
     priceDisclaimer: 'Tous les prix indiqués sont des prix conseillés Geely, TVA de 21 % incluse.',
     colDescription: 'Description',

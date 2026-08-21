@@ -434,8 +434,10 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   if (quote.customerEmail) rightLines.push(quote.customerEmail);
   if (quote.customerPhone) rightLines.push(quote.customerPhone);
 
-  const salespersonLineCount = quote.createdByName ? (quote.createdByEmail ? 2 : 1) : 0;
-  const leftLineCount = 1 + 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0) + salespersonLineCount; // aanbieder, + offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres, + verkoper naam/e-mail
+  const salespersonLineCount = quote.createdByName
+    ? 1 + (quote.createdByEmail ? 1 : 0) + (quote.createdByPhone ? 1 : 0)
+    : 0;
+  const leftLineCount = 1 + 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0) + salespersonLineCount; // aanbieder, + offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres, + verkoper naam/e-mail/telefoon
   const cardHeight = Math.max(34 + leftLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
 
   doc.lineWidth(1);
@@ -467,6 +469,10 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
       cy += 13;
       doc.fillColor('#666').fontSize(8).font('Inter').text(quote.createdByEmail, 56, cy);
     }
+    if (quote.createdByPhone) {
+      cy += 13;
+      doc.fillColor('#666').fontSize(8).font('Inter').text(quote.createdByPhone, 56, cy);
+    }
   }
 
   let cy2 = cardY + 16;
@@ -495,9 +501,17 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   drawTableHeaderBar(yPos);
   yPos += 24;
 
+  // A non-discountable line (the delivery pack, a towing hook, ...) gets a visible tag
+  // appended to its name so a customer can see at a glance why the discount didn't touch
+  // that particular line, rather than it just quietly not adding up.
   const rows = [
     { name: vehicleLabel, unitPrice: quote.basePrice, quantity: 1, totalPrice: quote.basePrice },
-    ...items.map(item => ({ name: translateAccessoryName(item.itemName, lang), unitPrice: item.unitPrice, quantity: item.quantity, totalPrice: item.totalPrice })),
+    ...items.map(item => ({
+      name: translateAccessoryName(item.itemName, lang) + (item.discountable ? '' : ` (${T.nonDiscountableTag})`),
+      unitPrice: item.unitPrice,
+      quantity: item.quantity,
+      totalPrice: item.totalPrice,
+    })),
   ];
 
   const rowHeight = 18;
@@ -626,9 +640,11 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
 
   // Financing simulation — an indicative monthly payment, never a binding offer (the
   // disclaimer says so explicitly). Uses the net amount after trade-in (if any), since
-  // that's what the customer would actually need to finance.
+  // that's what the customer would actually need to finance. Private customers only — a
+  // company ('bedrijf', identified by carrying a VAT number) finances differently in
+  // practice, so this consumer-style simulation doesn't apply to them.
   const financingPrincipal = Math.max(0, quote.totalPrice - (hasTradeIn ? quote.tradeInValue : 0));
-  if (financing && financing.terms.length > 0 && financingPrincipal > 0) {
+  if (quote.customerType !== 'bedrijf' && financing && financing.terms.length > 0 && financingPrincipal > 0) {
     const finBoxHeight = 58;
     doc.roundedRect(PAGE_LEFT, yPos, CONTENT_WIDTH, finBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
 

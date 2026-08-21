@@ -1,9 +1,9 @@
 import React from 'react'
-import { formatPrice, calculateMonthlyPayment } from '../utils/api'
+import { formatPrice } from '../utils/api'
 
-function PricingSummary({ pricing, tradeInValue = 0, financing = null }) {
-  const financingPrincipal = Math.max(0, pricing.total - tradeInValue)
-
+// Financing simulation is deliberately not shown here — only on the PDF, and only for
+// private customers (never while configuring, and never for a company). See pdf.js.
+function PricingSummary({ pricing, tradeInValue = 0 }) {
   return (
     <div className="pricing-summary">
       <div className="price-row">
@@ -52,26 +52,6 @@ function PricingSummary({ pricing, tradeInValue = 0, financing = null }) {
         </>
       )}
       <div className="vat-note">Basisprijs en opties zijn Geely-adviesprijzen, inclusief 21% Belgische BTW.</div>
-
-      {financing && financing.terms.length > 0 && (
-        <div className="financing-preview">
-          <div className="financing-preview-title">Financieringssimulatie</div>
-          <div className="financing-preview-terms">
-            {financing.terms.map((term) => (
-              <div key={term} className="financing-preview-term">
-                <span className="financing-preview-amount">
-                  {formatPrice(calculateMonthlyPayment(financingPrincipal, financing.annualRatePercent, term))}
-                </span>
-                <span className="financing-preview-label">per maand · {term} mnd</span>
-              </div>
-            ))}
-          </div>
-          <div className="vat-note">
-            Indicatieve schatting o.b.v. {financing.annualRatePercent}% jaarrente, geen bindend aanbod.
-            Neem contact op met onze financieringspartner voor een persoonlijk voorstel.
-          </div>
-        </div>
-      )}
     </div>
   )
 }

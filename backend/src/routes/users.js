@@ -29,9 +29,9 @@ router.get('/', async (req, res) => {
 // Create a colleague account
 router.post('/', async (req, res) => {
   try {
-    const { name, email, password, role = 'sales', branchId } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Naam, e-mail en wachtwoord zijn verplicht' });
+    const { name, email, phone, password, role = 'sales', branchId } = req.body;
+    if (!name || !email || !phone || !password) {
+      return res.status(400).json({ error: 'Naam, e-mail, telefoonnummer en wachtwoord zijn verplicht' });
     }
     if (password.length < 8) {
       return res.status(400).json({ error: 'Wachtwoord moet minstens 8 tekens bevatten' });
@@ -52,8 +52,8 @@ router.post('/', async (req, res) => {
     const id = uuidv4();
     const passwordHash = bcrypt.hashSync(password, 12);
     await runAsync(
-      'INSERT INTO users (id, name, email, passwordHash, role, branchId, mustChangePassword) VALUES (?, ?, ?, ?, ?, ?, 1)',
-      [id, name, email.toLowerCase(), passwordHash, role, branchId || null]
+      'INSERT INTO users (id, name, email, phone, passwordHash, role, branchId, mustChangePassword) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+      [id, name, email.toLowerCase(), phone, passwordHash, role, branchId || null]
     );
 
     const user = await getAsync('SELECT * FROM users WHERE id = ?', [id]);
@@ -66,7 +66,7 @@ router.post('/', async (req, res) => {
 // Update a colleague (name, e-mail, role, active, branch, optional password reset)
 router.put('/:id', async (req, res) => {
   try {
-    const { name, email, role, active, password, branchId } = req.body;
+    const { name, email, phone, role, active, password, branchId } = req.body;
     const user = await getAsync('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!user) {
       return res.status(404).json({ error: 'Gebruiker niet gevonden' });
@@ -108,10 +108,11 @@ router.put('/:id', async (req, res) => {
     const passwordHash = password ? bcrypt.hashSync(password, 12) : user.passwordHash;
 
     await runAsync(
-      'UPDATE users SET name = ?, email = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ?, branchId = ? WHERE id = ?',
+      'UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, passwordHash = ?, mustChangePassword = ?, branchId = ? WHERE id = ?',
       [
         name ?? user.name,
         normalizedEmail,
+        phone !== undefined ? phone : user.phone,
         role ?? user.role,
         active === undefined ? user.active : (active ? 1 : 0),
         passwordHash,

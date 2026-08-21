@@ -170,7 +170,7 @@ describe('server integration', () => {
     const createRes = await fetch(`${BASE_URL}/api/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Cookie: adminCookie },
-      body: JSON.stringify({ name: 'Sales Tester', email: 'sales-tester@geely.local', password: 'SalesTester123!', role: 'sales' }),
+      body: JSON.stringify({ name: 'Sales Tester', email: 'sales-tester@geely.local', phone: '0470000000', password: 'SalesTester123!', role: 'sales' }),
     });
     assert.equal(createRes.status, 201);
 

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { ROLES, ROLE_LABELS } from '../utils/constants'
 
 function UserFormModal({ branches, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'sales', branchId: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', role: 'sales', branchId: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,6 +42,10 @@ function UserFormModal({ branches, onClose, onSaved }) {
             <input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} required />
           </div>
           <div className="form-group">
+            <label>Telefoon</label>
+            <input type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} required placeholder="+32 470 12 34 56" />
+          </div>
+          <div className="form-group">
             <label>Tijdelijk wachtwoord</label>
             <input type="text" value={form.password} onChange={(e) => set('password', e.target.value)} required minLength={8} placeholder="Minstens 8 tekens" />
           </div>
@@ -72,31 +76,32 @@ function UserFormModal({ branches, onClose, onSaved }) {
   )
 }
 
-// Inline-editable e-mail cell — commits on blur (rather than every keystroke, like the
-// role/branch dropdowns do) since a partially-typed e-mail address isn't a valid save.
-// Local state so typing doesn't fight the table's own re-renders; resyncs from the saved
-// value on success, or snaps back to it if the save is rejected (e.g. duplicate e-mail).
-function EmailCell({ user, onSave }) {
-  const [value, setValue] = useState(user.email)
+// Inline-editable text cell (e-mail, phone, ...) — commits on blur (rather than every
+// keystroke, like the role/branch dropdowns do) since a partially-typed value isn't a
+// valid save. Local state so typing doesn't fight the table's own re-renders; resyncs
+// from the saved value on success, or snaps back to it if the save is rejected (e.g. a
+// duplicate e-mail).
+function EditableCell({ value: savedValue, type = 'text', normalize = (v) => v.trim(), onSave }) {
+  const [value, setValue] = useState(savedValue || '')
 
-  useEffect(() => { setValue(user.email) }, [user.email])
+  useEffect(() => { setValue(savedValue || '') }, [savedValue])
 
   const commit = async () => {
-    const trimmed = value.trim().toLowerCase()
-    if (!trimmed || trimmed === user.email) {
-      setValue(user.email)
+    const normalized = normalize(value)
+    if (!normalized || normalized === savedValue) {
+      setValue(savedValue || '')
       return
     }
     try {
-      await onSave(trimmed)
+      await onSave(normalized)
     } catch {
-      setValue(user.email)
+      setValue(savedValue || '')
     }
   }
 
   return (
     <input
-      type="email"
+      type={type}
       value={value}
       onChange={(e) => setValue(e.target.value)}
       onBlur={commit}
@@ -168,6 +173,16 @@ function AdminUsers() {
     }
   }
 
+  const handlePhoneChange = async (u, phone) => {
+    try {
+      await api.updateUser(u.id, { phone })
+      load()
+    } catch (err) {
+      alert(err.message)
+      throw err
+    }
+  }
+
   const handleDelete = async (u) => {
     if (!window.confirm(`Account van ${u.name} verwijderen?`)) return
     try {
@@ -196,6 +211,7 @@ function AdminUsers() {
               <tr>
                 <th>Naam</th>
                 <th>E-mail</th>
+                <th>Telefoon</th>
                 <th>Rol</th>
                 <th>Vestiging</th>
                 <th>Status</th>
@@ -206,7 +222,8 @@ function AdminUsers() {
               {users.map((u) => (
                 <tr key={u.id}>
                   <td style={{ fontWeight: 700 }}>{u.name}{u.id === currentUser.id && <span style={{ color: 'var(--muted-soft)', fontWeight: 400 }}> (jij)</span>}</td>
-                  <td><EmailCell user={u} onSave={(email) => handleEmailChange(u, email)} /></td>
+                  <td><EditableCell value={u.email} type="email" normalize={(v) => v.trim().toLowerCase()} onSave={(email) => handleEmailChange(u, email)} /></td>
+                  <td><EditableCell value={u.phone} type="tel" onSave={(phone) => handlePhoneChange(u, phone)} /></td>
                   <td>
                     <select
                       value={u.role}

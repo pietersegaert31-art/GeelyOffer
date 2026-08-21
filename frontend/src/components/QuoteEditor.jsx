@@ -54,11 +54,6 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
     tradeInYear: '', tradeInMileage: '', tradeInValue: 0,
   })
   const [pricing, setPricing] = useState(null)
-  const [financing, setFinancing] = useState(null)
-
-  useEffect(() => {
-    api.getFinancingSettings().then(setFinancing).catch(() => {})
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -266,7 +261,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
             </div>
 
             <div className="modal-side">
-              {pricing && <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} financing={financing} />}
+              {pricing && <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} />}
               <div className="btn-group" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                   {saving ? 'Opslaan...' : 'Wijzigingen opslaan'}

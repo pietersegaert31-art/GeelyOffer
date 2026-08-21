@@ -117,11 +117,8 @@ function QuoteBuilder({ onQuoteCreated }) {
     tradeInMileage: '',
     tradeInValue: 0,
   })
-  const [financing, setFinancing] = useState(null)
-
   useEffect(() => {
     loadData()
-    api.getFinancingSettings().then(setFinancing).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -462,7 +459,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                       </div>
                     )}
                   </div>
-                  <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} financing={financing} />
+                  <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} />
                 </div>
               )}
 

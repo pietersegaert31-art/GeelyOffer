@@ -425,8 +425,8 @@ router.post('/', async (req, res) => {
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, createdByPhone, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         sequenceNumber,
@@ -457,6 +457,7 @@ router.post('/', async (req, res) => {
         req.user.id,
         req.user.name,
         req.user.email,
+        req.user.phone,
         branch.branchId,
         branch.branchName,
         branch.branchAddress,
@@ -523,8 +524,8 @@ router.post('/:id/duplicate', async (req, res) => {
     const sequenceNumber = await nextSequenceNumber();
 
     await runAsync(
-      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, language, expiresAt, createdBy, createdByName, createdByEmail, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
+      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, status, notes, language, expiresAt, createdBy, createdByName, createdByEmail, createdByPhone, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL, NULL, 0)`,
       [
         id,
         sequenceNumber,
@@ -555,6 +556,7 @@ router.post('/:id/duplicate', async (req, res) => {
         req.user.id,
         req.user.name,
         req.user.email,
+        req.user.phone,
         branch.branchId,
         branch.branchName,
         branch.branchAddress,

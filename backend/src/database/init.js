@@ -239,6 +239,15 @@ function backfillCreatedByEmailIfMissing(database) {
   `);
 }
 
+// Mirrors backfillCreatedByEmailIfMissing above, for the salesperson phone number shown
+// alongside it on the PDF.
+function backfillCreatedByPhoneIfMissing(database) {
+  database.run(`
+    UPDATE quotes SET createdByPhone = (SELECT phone FROM users WHERE users.id = quotes.createdBy)
+    WHERE createdByPhone IS NULL AND createdBy IS NOT NULL
+  `);
+}
+
 // One-time assignment of a trackable 0-based offer number to quotes that predate the
 // sequenceNumber column, oldest first — new quotes get theirs immediately at creation
 // (see routes/quotes.js) as MAX(sequenceNumber)+1, so this only ever has work to do once,
@@ -271,14 +280,18 @@ function bootstrapAdminIfNoUsers(database) {
 
     const email = (process.env.ADMIN_EMAIL || 'admin@geely.local').toLowerCase();
     const name = process.env.ADMIN_NAME || 'Beheerder';
+    // Optional — unlike the regular "add colleague" form, the one-time bootstrap account
+    // doesn't require a phone number, since there's no one to fill it in interactively at
+    // first boot. Set via Beheer → Gebruikers afterward if left unset.
+    const phone = process.env.ADMIN_PHONE || null;
     const providedPassword = process.env.ADMIN_PASSWORD;
     const password = providedPassword || crypto.randomBytes(9).toString('base64url');
     const passwordHash = bcrypt.hashSync(password, 12);
     const id = uuidv4();
 
     database.run(
-      `INSERT INTO users (id, name, email, passwordHash, role) VALUES (?, ?, ?, ?, 'admin')`,
-      [id, name, email, passwordHash],
+      `INSERT INTO users (id, name, email, phone, passwordHash, role) VALUES (?, ?, ?, ?, ?, 'admin')`,
+      [id, name, email, phone, passwordHash],
       (insertErr) => {
         if (insertErr) {
           console.error('Failed to create bootstrap admin user:', insertErr.message);
@@ -317,6 +330,10 @@ export function initializeDatabase() {
     addColumnIfMissing(database, 'users', 'passwordResetTokenHash', 'TEXT');
     addColumnIfMissing(database, 'users', 'passwordResetExpires', 'DATETIME');
     addColumnIfMissing(database, 'users', 'branchId', 'TEXT');
+    // Shown on the quote PDF next to the salesperson's name/e-mail (see
+    // quotes.createdByPhone below) so a customer has a direct number to call, not just an
+    // e-mail address.
+    addColumnIfMissing(database, 'users', 'phone', 'TEXT');
 
     // Branches (physical dealership locations) — a user belongs to one, and every quote
     // they create snapshots that branch's name/address at creation time (see the
@@ -417,6 +434,9 @@ export function initializeDatabase() {
     // e-mail without a join — same reasoning as branchName/branchAddress below: it should
     // read the same on the PDF even if that colleague's account e-mail later changes.
     addColumnIfMissing(database, 'quotes', 'createdByEmail', 'TEXT');
+    // Same reasoning as createdByEmail — the salesperson's phone number, shown alongside
+    // it on the PDF.
+    addColumnIfMissing(database, 'quotes', 'createdByPhone', 'TEXT');
     // Snapshotted from the creating user's branch at creation time — not a live FK
     // lookup, so it stays accurate on the PDF even if that user later moves branches.
     addColumnIfMissing(database, 'quotes', 'branchId', 'TEXT');
@@ -746,6 +766,7 @@ export function initializeDatabase() {
     backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);
     backfillCreatedByEmailIfMissing(database);
+    backfillCreatedByPhoneIfMissing(database);
     backfillSequenceNumberIfMissing(database);
     bootstrapAdminIfNoUsers(database);
 
