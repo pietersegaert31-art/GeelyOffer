@@ -1,8 +1,6 @@
 import React from 'react'
 import { formatPrice } from '../utils/api'
 
-// Financing simulation is deliberately not shown here — only on the PDF, and only for
-// private customers (never while configuring, and never for a company). See pdf.js.
 function PricingSummary({ pricing, tradeInValue = 0 }) {
   return (
     <div className="pricing-summary">

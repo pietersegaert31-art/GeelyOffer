@@ -82,25 +82,6 @@ export function getDiscountTier(quantity) {
   return 0;
 }
 
-// Standard loan amortization formula for an indicative monthly payment — used to show
-// a "vanaf €X/maand" estimate alongside the cash price. This is deliberately a plain,
-// well-known formula (not a real financing offer): the actual rate a customer gets
-// depends on their file with the financing partner, so this is clearly presented as an
-// estimate, not a binding quote. Mirrored (not called cross-service) in the frontend
-// (frontend/src/utils/api.js) so the app's live preview and the PDF always agree without
-// a network round-trip for something this simple.
-export function calculateMonthlyPayment(principal, annualRatePercent, termMonths) {
-  if (!Number.isFinite(principal) || principal <= 0 || !Number.isFinite(termMonths) || termMonths <= 0) {
-    return 0;
-  }
-  const monthlyRate = (annualRatePercent || 0) / 100 / 12;
-  if (monthlyRate === 0) {
-    return principal / termMonths;
-  }
-  const factor = Math.pow(1 + monthlyRate, termMonths);
-  return (principal * monthlyRate * factor) / (factor - 1);
-}
-
 export function formatPrice(price) {
   return new Intl.NumberFormat('nl-BE', {
     style: 'currency',

@@ -13,7 +13,7 @@ Internal quotation tool for the Unicars Geely dealership. Salespeople build a ve
 - 📧 **E-mail delivery** — send the PDF straight to the customer (requires SMTP configuration)
 - 📄 **CSV export** — full quotes list for reporting
 - 💰 **Correct BTW math** — Geely's published prices are already VAT-inclusive; excl./incl. BTW are shown consistently everywhere (app and PDF)
-- 📑 **Branded PDF** — cover page with vehicle photo, pricing breakdown, standard equipment, signature blocks
+- 📑 **Branded PDF** — cover page with vehicle photo, pricing breakdown, standard equipment
 - 💾 **SQLite** — file-based storage; see [DEPLOYMENT.md](./DEPLOYMENT.md) for why the file's location matters once this is hosted online
 - 🧪 **Automated tests** — pricing math, equipment data, and an end-to-end auth/quote integration test (`npm test`)
 

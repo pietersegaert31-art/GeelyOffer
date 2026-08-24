@@ -6,7 +6,6 @@ import AdminAuditLog from './AdminAuditLog'
 import AdminImports from './AdminImports'
 import AdminBranches from './AdminBranches'
 import AdminPrivacy from './AdminPrivacy'
-import AdminFinancing from './AdminFinancing'
 import { api } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -18,7 +17,6 @@ const ALL_TABS = [
   { id: 'imports', label: 'Import', adminOnly: false },
   { id: 'auditlog', label: 'Logboek', adminOnly: false },
   { id: 'privacy', label: 'Privacy', adminOnly: true },
-  { id: 'financing', label: 'Financiering', adminOnly: true },
 ]
 
 function AdminPage() {
@@ -56,7 +54,6 @@ function AdminPage() {
       {tab === 'imports' && <AdminImports />}
       {tab === 'auditlog' && <AdminAuditLog />}
       {tab === 'privacy' && isAdmin && <AdminPrivacy />}
-      {tab === 'financing' && isAdmin && <AdminFinancing />}
 
       {isAdmin && (
         <div className="card">

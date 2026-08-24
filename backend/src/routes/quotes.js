@@ -580,7 +580,7 @@ router.post('/:id/duplicate', async (req, res) => {
 // E-mail the quote PDF to the customer, marking the quote as sent
 router.post('/:id/send-email', async (req, res) => {
   try {
-    const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.id);
+    const { quote, vehicle, items } = await loadQuoteForPdf(req.params.id);
     if (!quote.customerEmail) {
       return res.status(400).json({ error: 'Deze offerte heeft geen klant-e-mailadres' });
     }
@@ -604,7 +604,7 @@ router.post('/:id/send-email', async (req, res) => {
       quote.expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     }
 
-    const pdfBuffer = await generateQuotePdfBuffer({ quote, vehicle, items, financing });
+    const pdfBuffer = await generateQuotePdfBuffer({ quote, vehicle, items });
     await sendQuoteEmail({
       to: quote.customerEmail,
       customerName: quote.customerName,

@@ -593,19 +593,6 @@ export function initializeDatabase() {
       )
     `);
 
-    // Generic key/value settings store — currently only used for the financing
-    // simulation's interest rate and available terms (see routes/settings.js), but kept
-    // generic rather than dedicated columns so future admin-configurable values don't
-    // each need their own migration.
-    database.run(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    `);
-    database.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('financingAnnualRatePercent', '6.9')`);
-    database.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('financingTerms', '36,48,60')`);
-
     database.get('SELECT COUNT(*) AS count FROM vehicles', (err, row) => {
       if (err) {
         console.error('Error checking vehicle seed count:', err);

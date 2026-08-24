@@ -1067,50 +1067,6 @@ textarea {
   color: var(--muted-soft);
 }
 
-.financing-preview {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--border);
-}
-
-.financing-preview-title {
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 10px;
-}
-
-.financing-preview-terms {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.financing-preview-term {
-  flex: 1;
-  min-width: 110px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  text-align: center;
-}
-
-.financing-preview-amount {
-  display: block;
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.financing-preview-label {
-  display: block;
-  font-size: 0.72rem;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
 @media (max-width: 980px) {
   .builder-shell {
     grid-template-columns: 1fr;

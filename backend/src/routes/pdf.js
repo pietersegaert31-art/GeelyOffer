@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getAsync, allAsync } from '../database/init.js';
-import { formatPrice, calculateMonthlyPayment } from '../utils/pricing.js';
+import { formatPrice } from '../utils/pricing.js';
 import { getStandardEquipment } from '../data/standardEquipment.js';
 import { getTechnicalSpecs, getWarrantyInfo } from '../data/technicalSpecs.js';
 import { requireAuth, blockPendingPasswordChange } from '../middleware/auth.js';
@@ -351,7 +351,7 @@ function drawContinuationHeader(doc, title, vehicleLabel, smallLogoWidth) {
 // Draws the full multi-page quote document onto an already-created PDFDocument and ends it.
 // Shared by both the direct-download route and the e-mail attachment generator so the two
 // paths can never drift out of sync with each other.
-function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
+function renderQuotePdf(doc, { quote, vehicle, items }) {
   registerFonts(doc);
   const lang = resolveLang(quote.language);
   const T = PDF[lang];
@@ -521,7 +521,7 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     // A catalog with enough options selected can push this table past the bottom
     // margin — pdfkit's own auto-pagination on .text() would silently insert a page
     // here without this yPos tracker knowing, corrupting every section drawn below
-    // (subtotal, VAT box, trade-in, financing, signatures). Break proactively instead,
+    // (subtotal, VAT box, trade-in). Break proactively instead,
     // with a fresh header and a repeated column bar so the continuation reads cleanly.
     if (yPos + rowHeight > pageBottomForTable) {
       doc.addPage();
@@ -638,43 +638,12 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
   }
   yPos += 12;
 
-  // Financing simulation — an indicative monthly payment, never a binding offer (the
-  // disclaimer says so explicitly). Uses the net amount after trade-in (if any), since
-  // that's what the customer would actually need to finance. Private customers only — a
-  // company ('bedrijf', identified by carrying a VAT number) finances differently in
-  // practice, so this consumer-style simulation doesn't apply to them.
-  const financingPrincipal = Math.max(0, quote.totalPrice - (hasTradeIn ? quote.tradeInValue : 0));
-  if (quote.customerType !== 'bedrijf' && financing && financing.terms.length > 0 && financingPrincipal > 0) {
-    const finBoxHeight = 58;
-    doc.roundedRect(PAGE_LEFT, yPos, CONTENT_WIDTH, finBoxHeight, 8).fillAndStroke('#F6F7F9', '#E5E7EB');
-
-    doc.font('Inter-Bold').fontSize(9).fillColor('#1F4E78').text(T.financingHeader, PAGE_LEFT + 16, yPos + 12, { characterSpacing: 1 });
-
-    const termColWidth = (CONTENT_WIDTH - 32) / financing.terms.length;
-    financing.terms.forEach((term, i) => {
-      const x = PAGE_LEFT + 16 + i * termColWidth;
-      const monthly = calculateMonthlyPayment(financingPrincipal, financing.annualRatePercent, term);
-      doc.font('Inter-Bold').fontSize(12).fillColor('#000').text(formatPrice(monthly), x, yPos + 27, { width: termColWidth });
-      doc.font('Inter').fontSize(8).fillColor('#666').text(T.perMonth(term), x, yPos + 43, { width: termColWidth });
-    });
-
-    yPos += finBoxHeight + 4;
-    doc.font('Inter').fontSize(7).fillColor('#999');
-    const financingDisclaimerText = T.financingDisclaimer(financing.annualRatePercent.toLocaleString(LOCALE[lang]));
-    doc.text(financingDisclaimerText, PAGE_LEFT, yPos, { width: CONTENT_WIDTH });
-    // Measured rather than a fixed +12 — the French disclaimer (longer than the Dutch
-    // original) can wrap to two lines, and a fixed single-line increment would let the
-    // "Opmerkingen/Remarques" heading drawn right after this overlap it.
-    yPos += doc.heightOfString(financingDisclaimerText, { width: CONTENT_WIDTH }) + 4;
-  }
-
   // Notes — if the full block wouldn't fit in what's left of this page, start a fresh
   // page for it (with its own header) instead of letting pdfkit's default text-flow
   // silently auto-paginate mid-paragraph. That auto page-break happens inside the
   // doc.text() call itself, invisibly to the yPos this function tracks by hand — the
-  // signature-block placement right after this would then be computed from a yPos that
-  // no longer corresponds to where the page cursor actually ended up, landing signatures
-  // on a headerless orphan page with no relation to what's actually above them.
+  // footer placement right after this would then be computed from a yPos that no longer
+  // corresponds to where the page cursor actually ended up.
   if (quote.notes) {
     const notesLabelHeight = 12;
     doc.fontSize(8).font('Inter');
@@ -693,43 +662,15 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
     yPos += notesHeight + 10;
   }
 
-  // Signature blocks — break to a new page only if they genuinely don't fit (checked
-  // against the real page geometry, not a guessed constant), so a normal quote with a
-  // trade-in and/or financing box doesn't get pushed onto an otherwise near-empty extra
-  // page just for two signature boxes and a footer line. Tightening the spacing above
-  // means most quotes never reach this branch at all — but a customer with a long
-  // address, a trade-in, and long notes all at once can still legitimately run out of
-  // room, so this stays as a deliberate fallback rather than something to keep chasing
-  // with ever-smaller margins: when it does trigger, the new page gets its own proper
-  // header and a centered closing line instead of two boxes stranded at the top of an
-  // otherwise blank page.
-  const sigWidth = 245;
-  const sigHeight = 80;
-  const pageBottom = doc.page.height - doc.page.margins.bottom;
-  const spaceNeededForSignaturesAndFooter = sigHeight + 20 /* gap */ + 28 /* two footer lines */;
-  if (yPos + spaceNeededForSignaturesAndFooter > pageBottom) {
+  // Footer — break to a new page only if it genuinely doesn't fit against the real page
+  // geometry, so it never lands stranded below the bottom margin.
+  const footerHeight = 24;
+  const pageBottomForFooter = doc.page.height - doc.page.margins.bottom;
+  if (yPos + footerHeight > pageBottomForFooter) {
     doc.addPage();
     drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
-
-    yPos = 220;
-    doc.fillColor('#333').fontSize(11).font('Inter')
-      .text(T.signatureIntro, PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
-    yPos += 40;
+    yPos = 108;
   }
-  doc.roundedRect(PAGE_LEFT, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
-  doc.roundedRect(305, yPos, sigWidth, sigHeight, 6).stroke('#CCC');
-  doc.fillColor('#999').fontSize(8).font('Inter-Bold');
-  doc.text(T.sigSeller, PAGE_LEFT + 12, yPos + 12, { characterSpacing: 0.5 });
-  doc.text(T.sigCustomer, 317, yPos + 12, { width: sigWidth - 24, characterSpacing: 0.5 });
-  doc.fontSize(8).font('Inter').fillColor('#999');
-  if (quote.createdByName) {
-    doc.text(quote.createdByName, PAGE_LEFT + 12, yPos + 32);
-  }
-  doc.text(T.signatureDateLine, PAGE_LEFT + 12, yPos + sigHeight - 20);
-  doc.text(T.signatureDateLine, 317, yPos + sigHeight - 20);
-  yPos += sigHeight + 20;
-
-  // Footer
   doc.fontSize(8).fillColor('#666');
   doc.text(T.footerTagline, PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
   doc.text(T.footerValidity, PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
@@ -780,14 +721,6 @@ function renderQuotePdf(doc, { quote, vehicle, items, financing }) {
 // Loads everything a quote's PDF needs. Throws a descriptive Error if the quote or its
 // vehicle can't be found, so callers (route handler or e-mail sender) can turn that into
 // the right HTTP status / error message for their context.
-async function loadFinancingSettings() {
-  const rows = await allAsync('SELECT key, value FROM settings WHERE key IN (?, ?)', ['financingAnnualRatePercent', 'financingTerms']);
-  const byKey = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  const annualRatePercent = parseFloat(byKey.financingAnnualRatePercent ?? '6.9');
-  const terms = (byKey.financingTerms ?? '36,48,60').split(',').map((t) => parseInt(t.trim(), 10)).filter((t) => Number.isFinite(t) && t > 0);
-  return { annualRatePercent, terms };
-}
-
 export async function loadQuoteForPdf(quoteId) {
   const quote = await getAsync('SELECT * FROM quotes WHERE id = ?', [quoteId]);
   if (!quote) {
@@ -804,12 +737,11 @@ export async function loadQuoteForPdf(quoteId) {
   }
 
   const items = await allAsync('SELECT * FROM quote_items WHERE quoteId = ?', [quoteId]);
-  const financing = await loadFinancingSettings();
-  return { quote, vehicle, items, financing };
+  return { quote, vehicle, items };
 }
 
 // Renders a quote to an in-memory PDF buffer (used for e-mail attachments).
-export function generateQuotePdfBuffer({ quote, vehicle, items, financing }) {
+export function generateQuotePdfBuffer({ quote, vehicle, items }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
     const chunks = [];
@@ -817,7 +749,7 @@ export function generateQuotePdfBuffer({ quote, vehicle, items, financing }) {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
     try {
-      renderQuotePdf(doc, { quote, vehicle, items, financing });
+      renderQuotePdf(doc, { quote, vehicle, items });
     } catch (err) {
       reject(err);
     }
@@ -827,7 +759,7 @@ export function generateQuotePdfBuffer({ quote, vehicle, items, financing }) {
 // Generate PDF quote
 router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res) => {
   try {
-    const { quote, vehicle, items, financing } = await loadQuoteForPdf(req.params.quoteId);
+    const { quote, vehicle, items } = await loadQuoteForPdf(req.params.quoteId);
 
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
     const filename = `${PDF[resolveLang(quote.language)].filenamePrefix}${formatQuoteNumber(quote)}_${quote.customerName.replace(/\s+/g, '_')}.pdf`;
@@ -836,7 +768,7 @@ router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     doc.pipe(res);
 
-    renderQuotePdf(doc, { quote, vehicle, items, financing });
+    renderQuotePdf(doc, { quote, vehicle, items });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
