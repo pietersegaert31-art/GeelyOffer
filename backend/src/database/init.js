@@ -143,6 +143,40 @@ function seedTowingHookIfMissing(database) {
   });
 }
 
+// Runs on every boot (same reasoning as seedTowingHookIfMissing above) so these optional
+// accessories reach databases that were already seeded before they existed. Prices entered
+// by the business excl. BTW (€219,01 / €260,33) — stored incl. 21% BTW. Optional (mandatory
+// = 0) but non-discountable (discountable = 0), same as the towing hook: a "true accessory"
+// bolted on at full price regardless of any negotiated discount on the car itself.
+function seedChargingCablesIfMissing(database) {
+  const CABLES = [
+    { id: 'laadkabel-3fasig-6m', name: 'Laadkabel 3 fasig (6m)', priceInclVat: 265.00 },
+    { id: 'laadkabel-3fasig-8m', name: 'Laadkabel 3 fasig (8m)', priceInclVat: 315.00 },
+  ];
+  CABLES.forEach(({ id, name, priceInclVat }) => {
+    database.get('SELECT id FROM accessories WHERE id = ?', [id], (err, row) => {
+      if (err) {
+        console.error(`Error checking for ${id} seed row:`, err);
+        return;
+      }
+      if (row) return;
+
+      database.run(
+        `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable)
+         VALUES (?, ?, ?, ?, ?, 1, 0, 0)`,
+        [id, name, priceInclVat, 'techniek', JSON.stringify(['Geely E5', 'Starray EM-i'])],
+        (insertErr) => {
+          if (insertErr) {
+            console.error(`Failed to seed ${id}:`, insertErr.message);
+            return;
+          }
+          console.log(`✓ Added ${name} accessory`);
+        }
+      );
+    });
+  });
+}
+
 function seedBranchesIfEmpty(database) {
   database.get('SELECT COUNT(*) AS count FROM branches', (err, row) => {
     if (err) {
@@ -749,6 +783,7 @@ export function initializeDatabase() {
     fixAccessoryColorDataIfStale(database);
     seedDeliveryPackIfMissing(database);
     seedTowingHookIfMissing(database);
+    seedChargingCablesIfMissing(database);
     backfillAccessoryDiscountableIfMissing(database);
     backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);
