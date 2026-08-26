@@ -85,6 +85,11 @@ function buildComparisonRows(variants) {
 function QuoteBuilder({ onQuoteCreated }) {
   const { user } = useAuth()
   const [step, setStep] = useState(1)
+  // Each step is a full new screen of content — jump back to the top so the customer
+  // doesn't land mid-page (e.g. scrolled down while picking accessories) on the next step.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [step])
   const [vehicles, setVehicles] = useState([])
   const [accessories, setAccessories] = useState([])
   const [selectedModel, setSelectedModel] = useState(null)
