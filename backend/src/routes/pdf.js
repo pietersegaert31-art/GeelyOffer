@@ -20,6 +20,22 @@ const VEHICLE_IMAGES = {
   'Geely E2': path.join(__dirname, '../assets/vehicles/geely-e2.jpg'),
 };
 
+// Real front 3/4 photos per exterior color (same source and mapping as
+// frontend/src/utils/vehicleImages.js), keyed by the exact accessory name stored on the
+// quote_items row. A color without an entry here just falls back to VEHICLE_IMAGES above.
+const VEHICLE_COLOR_IMAGES = {
+  'Metallic: Frost Grey': path.join(__dirname, '../assets/vehicles/colors/e5-frost-grey-front.jpg'),
+  'Metallic: Carbon Black': path.join(__dirname, '../assets/vehicles/colors/e5-carbon-black-front.jpg'),
+  'Metallic: Moonlight Silver': path.join(__dirname, '../assets/vehicles/colors/e5-moonlight-silver-front.jpg'),
+  'Metallic: Snowy White': path.join(__dirname, '../assets/vehicles/colors/e5-snowy-white-front.jpg'),
+  'Metallic: Turquoise Green': path.join(__dirname, '../assets/vehicles/colors/e5-turquoise-green-front.jpg'),
+  'Metallic: Cloudveil Silver': path.join(__dirname, '../assets/vehicles/colors/starray-cloudveil-silver-front.jpg'),
+  'Metallic: Jungle Green': path.join(__dirname, '../assets/vehicles/colors/starray-jungle-green-front.jpg'),
+  'Metallic: Glacier Blue': path.join(__dirname, '../assets/vehicles/colors/starray-glacier-blue-front.jpg'),
+  'Metallic: Volcanic Grey': path.join(__dirname, '../assets/vehicles/colors/starray-volcanic-grey-front.jpg'),
+  'Metallic: Polar Black': path.join(__dirname, '../assets/vehicles/colors/starray-polar-black-front.jpg'),
+};
+
 // The legal entity actually issuing the quote (a Geely dealer) — distinct from "Geely",
 // the vehicle brand shown via the logo/imagery elsewhere on the PDF. Not per-branch or
 // per-quote data, so it's a plain constant rather than something stored on the quote.
@@ -368,8 +384,11 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
 
   doc.moveTo(PAGE_LEFT, 85).lineTo(PAGE_RIGHT, 85).stroke('#1F4E78');
 
-  // Hero vehicle photo
-  const heroImagePath = VEHICLE_IMAGES[vehicle.name];
+  // Hero vehicle photo — matches whichever exterior color the quote actually has on it
+  // (a quote_items row whose name is a known paint color), falling back to the model's
+  // default photo for a color Geely hasn't been photographed in yet, or none picked.
+  const selectedColorItem = items.find((item) => VEHICLE_COLOR_IMAGES[item.itemName]);
+  const heroImagePath = (selectedColorItem && VEHICLE_COLOR_IMAGES[selectedColorItem.itemName]) || VEHICLE_IMAGES[vehicle.name];
   let cursorY = 105;
   if (heroImagePath) {
     const img = doc.openImage(heroImagePath);

@@ -12,6 +12,7 @@ import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 import CustomerForm from './CustomerForm'
 import TradeInForm from './TradeInForm'
+import { VEHICLE_IMAGES, VEHICLE_COLOR_FRONT_IMAGES, VEHICLE_REAR_IMAGES } from '../utils/vehicleImages'
 
 function needsApprovalWarning(discountType, discountValue, role) {
   if (['admin', 'sales_manager'].includes(role)) return false
@@ -235,6 +236,16 @@ function QuoteBuilder({ onQuoteCreated }) {
   if (loading && vehicles.length === 0) {
     return <div className="loading"><div className="spinner" /></div>
   }
+
+  // Live photo preview for the sidebar summary — swaps to the real photo of whichever
+  // paint color the customer has picked (falling back to the model's default photo for
+  // colors Geely hasn't photographed yet, or before any color is chosen). The rear photo
+  // is fixed per model rather than per color — see VEHICLE_REAR_IMAGES in
+  // utils/vehicleImages.js for why.
+  const selectedColorAccessory = selectedAccessories.find((acc) => acc.category === 'exterior')
+  const previewFrontImage = (selectedColorAccessory && VEHICLE_COLOR_FRONT_IMAGES[selectedColorAccessory.name])
+    || (selectedVariant && VEHICLE_IMAGES[selectedVariant.name])
+  const previewRearImage = selectedVariant && VEHICLE_REAR_IMAGES[selectedVariant.name]
 
   return (
     <div className="page-shell">
@@ -493,6 +504,19 @@ function QuoteBuilder({ onQuoteCreated }) {
               <div className="card summary-card">
                 <div className="section-kicker">Actuele offerte</div>
                 <h3 className="section-title" style={{ marginBottom: '12px' }}>{selectedVariant.name}</h3>
+                {previewFrontImage && (
+                  <div className="vehicle-color-preview">
+                    <div className="vehicle-color-preview-image">
+                      <img src={previewFrontImage} alt={`${selectedVariant.name}${selectedColorAccessory ? ` — ${selectedColorAccessory.name.replace('Metallic: ', '')}` : ''}`} />
+                    </div>
+                    {previewRearImage && (
+                      <div className="vehicle-color-preview-image vehicle-color-preview-secondary">
+                        <img src={previewRearImage} alt={`${selectedVariant.name} — achteraanzicht`} />
+                        <span className="vehicle-color-preview-caption">Referentiebeeld — kleur op deze hoek kan afwijken van uw keuze</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="summary-row">
                   <span>Uitvoering</span>
                   <strong>{selectedVariant.model}</strong>

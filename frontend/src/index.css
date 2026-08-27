@@ -690,6 +690,37 @@ textarea {
   border: 1px solid var(--border);
 }
 
+.vehicle-color-preview {
+  margin-bottom: 14px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.vehicle-color-preview-image {
+  background: var(--panel-soft);
+}
+
+.vehicle-color-preview-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.vehicle-color-preview-secondary {
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+
+.vehicle-color-preview-caption {
+  display: block;
+  padding: 6px 10px;
+  font-size: 0.68rem;
+  color: var(--muted-soft);
+  text-align: center;
+  background: var(--panel-soft);
+}
+
 .summary-row {
   display: flex;
   justify-content: space-between;
