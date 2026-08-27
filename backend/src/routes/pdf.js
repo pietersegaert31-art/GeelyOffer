@@ -17,6 +17,7 @@ const LOGO_ASPECT = 114 / 459; // height / width of the source logo file
 const VEHICLE_IMAGES = {
   'Geely E5': path.join(__dirname, '../assets/vehicles/geely-e5.jpg'),
   'Starray EM-i': path.join(__dirname, '../assets/vehicles/starray-emi.jpg'),
+  'Geely E2': path.join(__dirname, '../assets/vehicles/geely-e2.jpg'),
 };
 
 // The legal entity actually issuing the quote (a Geely dealer) — distinct from "Geely",

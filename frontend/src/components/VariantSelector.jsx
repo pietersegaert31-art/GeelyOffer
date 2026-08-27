@@ -2,10 +2,12 @@ import React from 'react'
 import { formatPrice, exclVat } from '../utils/api'
 import geelyE5 from '../assets/vehicles/geely-e5.jpg'
 import starrayEmi from '../assets/vehicles/starray-emi.jpg'
+import geelyE2 from '../assets/vehicles/geely-e2.jpg'
 
 const VEHICLE_IMAGES = {
   'Geely E5': geelyE5,
   'Starray EM-i': starrayEmi,
+  'Geely E2': geelyE2,
 }
 
 // Same fallback chain as the PDF cover page (backend/src/routes/pdf.js) so the range
