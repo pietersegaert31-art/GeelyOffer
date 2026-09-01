@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { api, formatPrice, exclVat } from '../utils/api'
 import {
   DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
@@ -148,6 +148,12 @@ function QuoteBuilder({ onQuoteCreated }) {
     })
   }, [selectedModel, accessories])
 
+  // Guards against a slower, stale calculatePricing() response overwriting a newer one —
+  // e.g. rapid discount edits can fire two overlapping requests, and without this the one
+  // that happens to resolve last (not the one actually matching the current form) wins.
+  // Same pattern as InventoryPage.jsx's load().
+  const pricingRequestIdRef = useRef(0)
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -167,6 +173,7 @@ function QuoteBuilder({ onQuoteCreated }) {
   const calculatePricing = async () => {
     if (!selectedVariant) return
 
+    const requestId = ++pricingRequestIdRef.current
     try {
       const accessoriesTotal = selectedAccessories.reduce((sum, acc) => sum + acc.price, 0)
       const nonDiscountableAccessoriesTotal = selectedAccessories.filter((acc) => !acc.discountable).reduce((sum, acc) => sum + acc.price, 0)
@@ -177,8 +184,10 @@ function QuoteBuilder({ onQuoteCreated }) {
         discountValue,
         nonDiscountableAccessoriesTotal
       )
+      if (requestId !== pricingRequestIdRef.current) return
       setPricing(pricingData)
     } catch (err) {
+      if (requestId !== pricingRequestIdRef.current) return
       setError('Failed to calculate pricing: ' + err.message)
     }
   }

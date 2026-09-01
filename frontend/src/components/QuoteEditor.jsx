@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api } from '../utils/api'
 import {
   QUOTE_STATUSES, STATUS_LABELS, DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
@@ -54,6 +54,11 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
     tradeInYear: '', tradeInMileage: '', tradeInValue: 0,
   })
   const [pricing, setPricing] = useState(null)
+  // What the discount actually was when the quote loaded — compared against the live
+  // discountType/discountValue below so the approval badge can stop claiming an approval
+  // that only ever covered the old value the moment the rep changes it, instead of only
+  // catching up after the next save round-trip.
+  const originalDiscountRef = useRef({ type: 'percentage', value: 0 })
 
   useEffect(() => {
     let cancelled = false
@@ -79,8 +84,11 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
             quote.items?.some((item) => item.itemName === acc.name)
           )
         )
-        setDiscountType(quote.discountType || 'percentage')
-        setDiscountValue((quote.discountType === 'fixed' ? quote.discountEuro : quote.discountPercentage) || 0)
+        const loadedDiscountType = quote.discountType || 'percentage'
+        const loadedDiscountValue = (quote.discountType === 'fixed' ? quote.discountEuro : quote.discountPercentage) || 0
+        setDiscountType(loadedDiscountType)
+        setDiscountValue(loadedDiscountValue)
+        originalDiscountRef.current = { type: loadedDiscountType, value: loadedDiscountValue }
         setDiscountApprovalStatus(quote.discountApprovalStatus || 'not_required')
         setStatus(quote.status || 'draft')
         setCustomerInfo({
@@ -116,11 +124,17 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
 
   useEffect(() => {
     if (!vehicle) return
+    // Guards against a slower, stale response overwriting a newer one — rapid discount
+    // edits can fire overlapping requests, and without this the one that happens to
+    // resolve last (not the one matching the current form) would win. Same "cancelled"
+    // guard as the load() effect above.
+    let cancelled = false
     const accessoriesTotal = selectedAccessories.reduce((sum, acc) => sum + acc.price, 0)
     const nonDiscountableAccessoriesTotal = selectedAccessories.filter((acc) => !acc.discountable).reduce((sum, acc) => sum + acc.price, 0)
     api.calculatePricing(vehicle.basePrice, accessoriesTotal, discountType, discountValue, nonDiscountableAccessoriesTotal)
-      .then(setPricing)
-      .catch((err) => setError('Kon prijs niet berekenen: ' + err.message))
+      .then((data) => { if (!cancelled) setPricing(data) })
+      .catch((err) => { if (!cancelled) setError('Kon prijs niet berekenen: ' + err.message) })
+    return () => { cancelled = true }
   }, [vehicle, selectedAccessories, discountType, discountValue])
 
   // Same reasoning as QuoteBuilder.jsx: keeps the live preview accurate for a quote that
@@ -159,6 +173,22 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
       setSaving(false)
     }
   }
+
+  // discountApprovalStatus reflects what the server last computed for the discount as it
+  // was when this quote loaded — once the rep changes the discount away from that, it no
+  // longer describes the value on screen (e.g. still showing "goedgekeurd" for a since-
+  // approved 10% while the form now holds an unapproved 40%). Re-derive it locally with
+  // the same rule the backend uses (computeDiscountApprovalStatus in routes/quotes.js) the
+  // moment the value diverges, rather than waiting for the next save round-trip.
+  const discountChangedSinceLoad = discountType !== originalDiscountRef.current.type
+    || discountValue !== originalDiscountRef.current.value
+  const displayedApprovalStatus = !discountChangedSinceLoad
+    ? discountApprovalStatus
+    : discountValue <= 0
+      ? 'not_required'
+      : ['admin', 'sales_manager'].includes(user.role)
+        ? 'approved'
+        : (needsApprovalWarning(discountType, discountValue, user.role) ? 'pending' : 'not_required')
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -235,10 +265,10 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
                 </div>
               </div>
 
-              {DISCOUNT_APPROVAL_STATUS_LABELS[discountApprovalStatus] && (
+              {DISCOUNT_APPROVAL_STATUS_LABELS[displayedApprovalStatus] && (
                 <div style={{ marginTop: '10px' }}>
-                  <span className={`badge ${DISCOUNT_APPROVAL_BADGE_CLASS[discountApprovalStatus]}`}>
-                    {DISCOUNT_APPROVAL_STATUS_LABELS[discountApprovalStatus]}
+                  <span className={`badge ${DISCOUNT_APPROVAL_BADGE_CLASS[displayedApprovalStatus]}`}>
+                    {DISCOUNT_APPROVAL_STATUS_LABELS[displayedApprovalStatus]}
                   </span>
                 </div>
               )}

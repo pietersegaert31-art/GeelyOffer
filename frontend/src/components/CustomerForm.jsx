@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { api, formatPrice, formatDate } from '../utils/api'
 import { STATUS_LABELS, QUOTE_LANGUAGES, QUOTE_LANGUAGE_LABELS } from '../utils/constants'
 
@@ -6,11 +6,17 @@ function CustomerForm({ customerInfo, onChange, excludeId }) {
   const [vatLookupLoading, setVatLookupLoading] = useState(false)
   const [vatLookupError, setVatLookupError] = useState('')
   const [history, setHistory] = useState([])
+  // Email, phone, and VAT number each fire checkHistory independently on blur — tabbing
+  // through the form quickly can have two lookups in flight at once, and without this a
+  // slower-but-earlier one resolving last would overwrite a newer, more complete result
+  // with a stale one (e.g. an outdated "no history" after a real match was already shown).
+  const historyRequestIdRef = useRef(0)
 
   // Checks whether this customer (by e-mail, phone, or VAT number) already has quotes
   // elsewhere in the system, so a rep can recognize a repeat customer instead of treating
   // every quote as a first contact. Fired on blur rather than on every keystroke.
   const checkHistory = async (info) => {
+    const requestId = ++historyRequestIdRef.current
     if (!info.customerEmail && !info.customerPhone && !info.customerVatNumber) {
       setHistory([])
       return
@@ -22,9 +28,11 @@ function CustomerForm({ customerInfo, onChange, excludeId }) {
         vatNumber: info.customerType === 'bedrijf' ? info.customerVatNumber : '',
         excludeId,
       })
+      if (requestId !== historyRequestIdRef.current) return
       setHistory(matches)
     } catch {
       // A failed lookup shouldn't block filling in the rest of the form — just skip the notice.
+      if (requestId !== historyRequestIdRef.current) return
       setHistory([])
     }
   }
