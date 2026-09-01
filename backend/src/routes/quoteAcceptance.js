@@ -72,10 +72,22 @@ router.post('/:token', async (req, res) => {
       return res.status(400).json({ error: 'Volledige naam is verplicht om te bevestigen.' });
     }
 
-    await runAsync(
-      `UPDATE quotes SET status = 'accepted', acceptedAt = CURRENT_TIMESTAMP, acceptedByName = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`,
+    // The status = 'accepted' guard above reads the row, but nothing locks it against a
+    // second near-simultaneous request (a double-click before the button visually
+    // disables, or a client-side retry) also passing that same read before either write
+    // lands — both would then run this UPDATE and both log an 'accepted_online' entry for
+    // one acceptance. Adding `AND status != 'accepted'` to the UPDATE itself closes that
+    // window: only the first request to actually reach the database can still change zero
+    // rows to one; a loser sees `changes: 0` and is treated the same as the ordinary
+    // already-accepted case above, instead of writing (and logging) a duplicate.
+    const result = await runAsync(
+      `UPDATE quotes SET status = 'accepted', acceptedAt = CURRENT_TIMESTAMP, acceptedByName = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND status != 'accepted'`,
       [acceptedByName, quote.id]
     );
+    if (result.changes === 0) {
+      const current = await getAsync('SELECT acceptedAt FROM quotes WHERE id = ?', [quote.id]);
+      return res.json({ message: 'Deze offerte was al bevestigd.', acceptedAt: current?.acceptedAt });
+    }
     await logAudit({
       entityType: 'quote',
       entityId: quote.id,

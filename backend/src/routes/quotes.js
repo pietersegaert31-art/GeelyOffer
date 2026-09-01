@@ -101,10 +101,11 @@ function normalizeVatNumber(raw) {
 // price they liked (e.g. a real accessory relabeled or repriced at submission time).
 // Only `quantity` is trusted from the client, and even that is clamped to a sane
 // positive integer.
-// Mirrors frontend/src/utils/constants.js SINGLE_SELECT_CATEGORIES — a car can only
-// have one paint color, so this is checked here too rather than trusting the UI alone
-// to enforce it (the UI can have bugs, and this endpoint can be called directly).
-const SINGLE_SELECT_CATEGORIES = ['exterior'];
+// Mirrors frontend/src/utils/constants.js SINGLE_SELECT_CATEGORIES — a car can only have
+// one paint color and one interior/upholstery, so this is checked here too rather than
+// trusting the UI alone to enforce it (the UI can have bugs, and this endpoint can be
+// called directly).
+const SINGLE_SELECT_CATEGORIES = ['exterior', 'interior'];
 
 // vehicleName scopes accessories to the quote's actual vehicle — without this, a request
 // (crafted by hand, or a frontend bug) could attach an accessory that only makes sense
@@ -155,7 +156,14 @@ async function resolveAccessories(items, vehicleName) {
 async function resolveMandatoryAccessories(vehicleName) {
   const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
   return rows
-    .filter((row) => JSON.parse(row.vehicleModels || '[]').includes(vehicleName))
+    // An empty vehicleModels array means "applies to every model" everywhere else in this
+    // file (see resolveAccessories above) and in the admin UI ("Alle modellen" in
+    // AdminAccessories.jsx) — without the length check, a mandatory fee meant to apply
+    // universally would never actually be charged on any quote.
+    .filter((row) => {
+      const applicableModels = JSON.parse(row.vehicleModels || '[]');
+      return applicableModels.length === 0 || applicableModels.includes(vehicleName);
+    })
     .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable }));
 }
 
@@ -730,6 +738,14 @@ router.put('/:id', async (req, res) => {
     }
     if (!canModifyQuote(quote, req.user)) {
       return res.status(403).json({ error: 'Je kan enkel je eigen offertes bewerken' });
+    }
+    // A customer who already accepted this quote signed off on a specific price and
+    // configuration — nothing before this point stopped a rep from then silently changing
+    // the discount, accessories, or customer info on that same "accepted" quote with no
+    // trace distinguishing it from an ordinary draft edit. Managers can still correct a
+    // genuine mistake after the fact; a plain rep now needs one to do it.
+    if (quote.status === 'accepted' && !isManagerRole(req.user.role)) {
+      return res.status(403).json({ error: 'Deze offerte is al geaccepteerd door de klant — enkel een sales manager of beheerder kan ze nog wijzigen' });
     }
 
     if (status !== undefined && !QUOTE_STATUSES.includes(status)) {

@@ -15,14 +15,25 @@ function findColumnIndex(headerRow, aliases) {
   return headerRow.findIndex((cell) => aliases.includes(normalizeHeader(cell)));
 }
 
-// Handles both "36490" and Belgian-style "36.490,00" (thousands dot, decimal comma).
+// Handles "36490", Belgian-style "36.490,00" (thousands dot, decimal comma), and a
+// whole-euro Belgian price with a thousands dot but no decimal comma at all, e.g.
+// "36.490" — a very plausible price-list cell (no cents to write) that the previous
+// comma-only check misread as the decimal 36.49, understating the price ~1000x. Only a
+// dot forming valid 3-digit groups (not just any trailing dot) is treated as a thousands
+// separator here — "36.49" (2 trailing digits) is left as the decimal it actually is.
 function parsePrice(raw) {
   if (raw === null || raw === undefined || raw === '') return null;
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null;
   const str = String(raw).replace(/[€\s]/g, '');
-  const normalized = str.includes(',') && !/\.\d{1,2}$/.test(str)
-    ? str.replace(/\./g, '').replace(',', '.')
-    : str.replace(/,/g, '');
+
+  let normalized;
+  if (str.includes(',')) {
+    normalized = str.replace(/\./g, '').replace(',', '.');
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(str)) {
+    normalized = str.replace(/\./g, '');
+  } else {
+    normalized = str;
+  }
   const num = parseFloat(normalized);
   return Number.isFinite(num) ? num : null;
 }

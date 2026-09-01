@@ -578,7 +578,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   // The subtotal/discount lines and the excl./incl.-BTW box below all belong to one
   // visual unit (the running price ladder) — if it doesn't fit as a whole, break before
   // any of it starts rather than splitting it awkwardly across two pages.
-  const priceLadderHeight = 18 + (quote.discountPercentage > 0 ? 18 : 0) + 6
+  const priceLadderHeight = 18 + (quote.discountAmount > 0 ? 18 : 0) + 6
     + (hasTradeIn ? 13 : 0) + (hasTradeIn ? 118 : 76) + (hasTradeIn ? 12 : 0);
   if (yPos + priceLadderHeight > pageBottomForTable) {
     doc.addPage();
@@ -591,8 +591,13 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   doc.text(formatPrice(quote.basePrice + quote.accessories), 480, yPos, { width: 70, align: 'right' });
   yPos += 18;
 
-  if (quote.discountPercentage > 0) {
-    doc.text(T.discountLabel(quote.discountPercentage.toLocaleString(LOCALE[lang])), 350, yPos, { width: 120 });
+  // Gated on discountAmount (what was actually deducted) rather than discountPercentage —
+  // a 'fixed' discount stores its value in discountEuro/discountAmount and leaves
+  // discountPercentage at 0, so checking only discountPercentage skipped this line
+  // entirely for a fixed discount even though the totals below are already net of it.
+  if (quote.discountAmount > 0) {
+    const label = quote.discountType === 'fixed' ? T.discountLabelFixed : T.discountLabel(quote.discountPercentage.toLocaleString(LOCALE[lang]));
+    doc.text(label, 350, yPos, { width: 120 });
     doc.text('-' + formatPrice(quote.discountAmount), 480, yPos, { width: 70, align: 'right' });
     yPos += 18;
   }
