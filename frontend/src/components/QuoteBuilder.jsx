@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { api, formatPrice, exclVat } from '../utils/api'
+import { api, formatPrice, exclVat, formatDate } from '../utils/api'
 import {
   DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
@@ -132,6 +132,37 @@ function QuoteBuilder({ onQuoteCreated }) {
       calculatePricing()
     }
   }, [selectedVariant, selectedAccessories, discountType, discountValue])
+
+  // Suggests an exact match from physical stock — same variant AND same exterior color —
+  // once both are picked, so a rep can offer a customer a car that's already on the lot
+  // (faster delivery) instead of defaulting to a special order without realizing one's
+  // available. Deliberately requires the color match too, not just the variant: "perfectly
+  // corresponds" is the point — a looser match belongs in the Voorraad tab's own filters,
+  // not a suggestion implying this exact car is sitting there.
+  const [matchingStock, setMatchingStock] = useState({ inStock: [], incoming: [] })
+  const stockMatchRequestIdRef = useRef(0)
+  useEffect(() => {
+    const colorAccessory = selectedAccessories.find((acc) => acc.category === 'exterior')
+    if (!selectedVariant || !colorAccessory) {
+      setMatchingStock({ inStock: [], incoming: [] })
+      return
+    }
+    const requestId = ++stockMatchRequestIdRef.current
+    api.getInventory({ vehicleId: selectedVariant.id })
+      .then((units) => {
+        if (requestId !== stockMatchRequestIdRef.current) return
+        const matches = units.filter((u) => u.colorAccessoryId === colorAccessory.id)
+        setMatchingStock({
+          inStock: matches.filter((u) => u.status === 'in_stock'),
+          incoming: matches.filter((u) => u.status === 'incoming'),
+        })
+      })
+      .catch(() => {
+        // A failed lookup shouldn't block quote building — just skip the suggestion.
+        if (requestId !== stockMatchRequestIdRef.current) return
+        setMatchingStock({ inStock: [], incoming: [] })
+      })
+  }, [selectedVariant, selectedAccessories])
 
   // Mandatory accessories (e.g. the delivery pack) are always part of the quote — add
   // any that apply to the selected model and aren't already in the list, so the live
@@ -374,6 +405,34 @@ function QuoteBuilder({ onQuoteCreated }) {
                   }}
                 />
               </div>
+
+              {(matchingStock.inStock.length > 0 || matchingStock.incoming.length > 0) && (
+                <div className="card">
+                  {matchingStock.inStock.length > 0 ? (
+                    <div className="customer-history-notice">
+                      <strong>🚗 Op voorraad!</strong> Dit exacte voertuig (zelfde uitvoering en kleur) staat al klaar — sneller leverbaar dan een nieuwe bestelling. Overweeg dit voor te stellen aan de klant:
+                      <ul>
+                        {matchingStock.inStock.map((u) => (
+                          <li key={u.id}>
+                            {u.branchName || 'Onbekende vestiging'}{u.vin ? ` · VIN ${u.vin}` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="customer-history-notice">
+                      <strong>Onderweg</strong> — dit exacte voertuig (zelfde uitvoering en kleur) is al besteld en komt binnenkort binnen:
+                      <ul>
+                        {matchingStock.incoming.map((u) => (
+                          <li key={u.id}>
+                            {u.branchName || 'Onbekende vestiging'}{u.expectedArrival ? ` · verwacht ${formatDate(u.expectedArrival)}` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="card">
                 <div className="section-kicker">Korting</div>
