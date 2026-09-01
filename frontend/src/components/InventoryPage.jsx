@@ -17,16 +17,19 @@ const STATUS_BADGE_CLASS = {
   sold: 'declined',
 }
 
+// A color option doesn't require a swatch hex (see availableColors below) — hex missing
+// just means a neutral placeholder dot instead of no dot at all. "—" is reserved for when
+// no color was assigned to the unit in the first place (name itself is missing).
 function ColorSwatch({ hex, name }) {
-  if (!hex) return <span style={{ color: 'var(--muted-soft)' }}>—</span>
+  if (!name) return <span style={{ color: 'var(--muted-soft)' }}>—</span>
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
       <span
         style={{
           display: 'inline-block', width: '14px', height: '14px', borderRadius: '50%',
-          border: '1px solid var(--border-strong)', backgroundColor: hex, flexShrink: 0,
+          border: '1px solid var(--border-strong)', backgroundColor: hex || 'var(--panel-soft)', flexShrink: 0,
         }}
-        title={hex}
+        title={hex || 'Geen kleurstaal ingesteld'}
       />
       {name}
     </span>
@@ -50,9 +53,12 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
 
   const selectedVehicle = vehicles.find((v) => v.id === form.vehicleId)
   // Same applicability rule as AccessoriesSelector.jsx: a color option applies if it's
-  // universal (no vehicleModels) or explicitly lists this vehicle by name.
+  // universal (no vehicleModels) or explicitly lists this vehicle by name. Filtered by
+  // category rather than requiring a swatch hex — the hex is only cosmetic (it's optional
+  // when adding an option in Beheer → Opties), so a color someone forgot to give a swatch
+  // must still be pickable here, not silently missing from the dropdown.
   const availableColors = accessories.filter((a) =>
-    a.colorHex && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
+    a.category === 'exterior' && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
   )
 
   const handleSubmit = async (e) => {
