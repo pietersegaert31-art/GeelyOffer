@@ -615,6 +615,7 @@ export function initializeDatabase() {
         branchId TEXT,
         vin TEXT,
         colorAccessoryId TEXT,
+        interiorAccessoryId TEXT,
         status TEXT NOT NULL DEFAULT 'in_stock',
         expectedArrival DATE,
         reservedFor TEXT,
@@ -623,9 +624,15 @@ export function initializeDatabase() {
         updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (vehicleId) REFERENCES vehicles(id),
         FOREIGN KEY (branchId) REFERENCES branches(id),
-        FOREIGN KEY (colorAccessoryId) REFERENCES accessories(id)
+        FOREIGN KEY (colorAccessoryId) REFERENCES accessories(id),
+        FOREIGN KEY (interiorAccessoryId) REFERENCES accessories(id)
       )
     `);
+    // CREATE TABLE IF NOT EXISTS above only takes effect on a brand-new database — an
+    // already-deployed one (this column didn't exist when inventory tracking first
+    // shipped) needs it added the same way every other post-launch column in this file
+    // does.
+    addColumnIfMissing(database, 'inventory', 'interiorAccessoryId', 'TEXT');
 
     database.get('SELECT COUNT(*) AS count FROM vehicles', (err, row) => {
       if (err) {

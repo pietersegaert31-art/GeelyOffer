@@ -133,16 +133,21 @@ function QuoteBuilder({ onQuoteCreated }) {
     }
   }, [selectedVariant, selectedAccessories, discountType, discountValue])
 
-  // Suggests an exact match from physical stock — same variant AND same exterior color —
-  // once both are picked, so a rep can offer a customer a car that's already on the lot
-  // (faster delivery) instead of defaulting to a special order without realizing one's
-  // available. Deliberately requires the color match too, not just the variant: "perfectly
-  // corresponds" is the point — a looser match belongs in the Voorraad tab's own filters,
-  // not a suggestion implying this exact car is sitting there.
+  // Suggests an exact match from physical stock — same variant, same exterior color, and
+  // (when the customer picked one) the same interior/upholstery — so a rep can offer a
+  // customer a car that's already on the lot (faster delivery) instead of defaulting to a
+  // special order without realizing one's available. The exterior color is always required
+  // to match ("perfectly corresponds" is the point — a looser match belongs in the
+  // Voorraad tab's own filters, not a suggestion implying this exact car is sitting there),
+  // but interior is only enforced when the customer actually selected one: most models
+  // still have zero or one interior option today (real choices are being added to the
+  // catalog next), and a rep who never touches that category shouldn't lose the color
+  // match just because interior wasn't part of what they configured.
   const [matchingStock, setMatchingStock] = useState({ inStock: [], incoming: [] })
   const stockMatchRequestIdRef = useRef(0)
   useEffect(() => {
     const colorAccessory = selectedAccessories.find((acc) => acc.category === 'exterior')
+    const interiorAccessory = selectedAccessories.find((acc) => acc.category === 'interior')
     if (!selectedVariant || !colorAccessory) {
       setMatchingStock({ inStock: [], incoming: [] })
       return
@@ -151,7 +156,10 @@ function QuoteBuilder({ onQuoteCreated }) {
     api.getInventory({ vehicleId: selectedVariant.id })
       .then((units) => {
         if (requestId !== stockMatchRequestIdRef.current) return
-        const matches = units.filter((u) => u.colorAccessoryId === colorAccessory.id)
+        const matches = units.filter((u) =>
+          u.colorAccessoryId === colorAccessory.id
+          && (!interiorAccessory || u.interiorAccessoryId === interiorAccessory.id)
+        )
         setMatchingStock({
           inStock: matches.filter((u) => u.status === 'in_stock'),
           incoming: matches.filter((u) => u.status === 'incoming'),
@@ -288,6 +296,12 @@ function QuoteBuilder({ onQuoteCreated }) {
   const previewRearImage = selectedVariant && VEHICLE_REAR_IMAGES[selectedVariant.name]
   const previewInteriorImage = selectedVariant && VEHICLE_INTERIOR_IMAGES[selectedVariant.name]
 
+  // Describes exactly what the stock-match notice below actually matched on, so it never
+  // claims "same interior" for a match that only checked variant + color (see the
+  // matchingStock effect above — interior is only enforced when the customer picked one).
+  const selectedInteriorAccessory = selectedAccessories.find((acc) => acc.category === 'interior')
+  const stockMatchDescription = selectedInteriorAccessory ? 'uitvoering, kleur en interieur' : 'uitvoering en kleur'
+
   return (
     <div className="page-shell">
       {error && <div className="error">{error}</div>}
@@ -410,7 +424,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                 <div className="card">
                   {matchingStock.inStock.length > 0 ? (
                     <div className="customer-history-notice">
-                      <strong>🚗 Op voorraad!</strong> Dit exacte voertuig (zelfde uitvoering en kleur) staat al klaar — sneller leverbaar dan een nieuwe bestelling. Overweeg dit voor te stellen aan de klant:
+                      <strong>🚗 Op voorraad!</strong> Dit exacte voertuig (zelfde {stockMatchDescription}) staat al klaar — sneller leverbaar dan een nieuwe bestelling. Overweeg dit voor te stellen aan de klant:
                       <ul>
                         {matchingStock.inStock.map((u) => (
                           <li key={u.id}>
@@ -421,7 +435,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                     </div>
                   ) : (
                     <div className="customer-history-notice">
-                      <strong>Onderweg</strong> — dit exacte voertuig (zelfde uitvoering en kleur) is al besteld en komt binnenkort binnen:
+                      <strong>Onderweg</strong> — dit exacte voertuig (zelfde {stockMatchDescription}) is al besteld en komt binnenkort binnen:
                       <ul>
                         {matchingStock.incoming.map((u) => (
                           <li key={u.id}>

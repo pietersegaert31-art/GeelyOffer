@@ -11,9 +11,10 @@ const STATUS_BADGE_CLASS = {
   sold: 'declined',
 }
 
-// A color option doesn't require a swatch hex (see availableColors below) — hex missing
-// just means a neutral placeholder dot instead of no dot at all. "—" is reserved for when
-// no color was assigned to the unit in the first place (name itself is missing).
+// Shared by the Kleur and Interieur columns/fields — neither requires a swatch hex (see
+// availableColors/availableInteriors below), so hex missing just means a neutral
+// placeholder dot instead of no dot at all. "—" is reserved for when nothing was assigned
+// to the unit in the first place (name itself is missing).
 function ColorSwatch({ hex, name }) {
   if (!name) return <span style={{ color: 'var(--muted-soft)' }}>—</span>
   return (
@@ -33,11 +34,11 @@ function ColorSwatch({ hex, name }) {
 function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved }) {
   const [form, setForm] = useState(unit ? {
     vehicleId: unit.vehicleId, branchId: unit.branchId || '', vin: unit.vin || '',
-    colorAccessoryId: unit.colorAccessoryId || '', status: unit.status,
+    colorAccessoryId: unit.colorAccessoryId || '', interiorAccessoryId: unit.interiorAccessoryId || '', status: unit.status,
     expectedArrival: unit.expectedArrival ? unit.expectedArrival.slice(0, 10) : '',
     reservedFor: unit.reservedFor || '', notes: unit.notes || '',
   } : {
-    vehicleId: vehicles[0]?.id || '', branchId: '', vin: '', colorAccessoryId: '',
+    vehicleId: vehicles[0]?.id || '', branchId: '', vin: '', colorAccessoryId: '', interiorAccessoryId: '',
     status: 'in_stock', expectedArrival: '', reservedFor: '', notes: '',
   })
   const [saving, setSaving] = useState(false)
@@ -46,13 +47,16 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
 
   const selectedVehicle = vehicles.find((v) => v.id === form.vehicleId)
-  // Same applicability rule as AccessoriesSelector.jsx: a color option applies if it's
-  // universal (no vehicleModels) or explicitly lists this vehicle by name. Filtered by
-  // category rather than requiring a swatch hex — the hex is only cosmetic (it's optional
-  // when adding an option in Beheer → Opties), so a color someone forgot to give a swatch
+  // Same applicability rule as AccessoriesSelector.jsx: an option applies if it's universal
+  // (no vehicleModels) or explicitly lists this vehicle by name. Filtered by category
+  // rather than requiring a swatch hex — the hex is only cosmetic (it's optional when
+  // adding an option in Beheer → Opties), so an option someone forgot to give a swatch
   // must still be pickable here, not silently missing from the dropdown.
   const availableColors = accessories.filter((a) =>
     a.category === 'exterior' && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
+  )
+  const availableInteriors = accessories.filter((a) =>
+    a.category === 'interior' && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
   )
 
   const handleSubmit = async (e) => {
@@ -65,6 +69,7 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
         branchId: form.branchId || null,
         vin: form.vin || null,
         colorAccessoryId: form.colorAccessoryId || null,
+        interiorAccessoryId: form.interiorAccessoryId || null,
         status: form.status,
         expectedArrival: form.expectedArrival || null,
         reservedFor: form.reservedFor || null,
@@ -122,6 +127,17 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
               </select>
             </div>
             <div className="form-group">
+              <label>Interieur</label>
+              <select value={form.interiorAccessoryId} onChange={(e) => set('interiorAccessoryId', e.target.value)}>
+                <option value="">Onbekend</option>
+                {availableInteriors.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
               <label>Status</label>
               <select value={form.status} onChange={(e) => set('status', e.target.value)}>
                 {STATUSES.map((s) => (
@@ -129,16 +145,14 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
                 ))}
               </select>
             </div>
-          </div>
-          <div className="form-row">
             <div className="form-group">
               <label>VIN (optioneel)</label>
               <input value={form.vin} onChange={(e) => set('vin', e.target.value)} placeholder="Chassisnummer" />
             </div>
-            <div className="form-group">
-              <label>Verwachte aankomst</label>
-              <input type="date" value={form.expectedArrival} onChange={(e) => set('expectedArrival', e.target.value)} />
-            </div>
+          </div>
+          <div className="form-group">
+            <label>Verwachte aankomst</label>
+            <input type="date" value={form.expectedArrival} onChange={(e) => set('expectedArrival', e.target.value)} />
           </div>
           <div className="form-group">
             <label>Gereserveerd voor (optioneel)</label>
@@ -262,6 +276,7 @@ function InventoryPage() {
               <tr>
                 <th>Model</th>
                 <th>Kleur</th>
+                <th>Interieur</th>
                 <th>Vestiging</th>
                 <th>VIN</th>
                 <th>Status</th>
@@ -275,6 +290,7 @@ function InventoryPage() {
                 <tr key={unit.id}>
                   <td style={{ fontWeight: 700 }}>{unit.vehicleName} {unit.vehicleModel}</td>
                   <td><ColorSwatch hex={unit.colorHex} name={unit.colorName} /></td>
+                  <td><ColorSwatch hex={unit.interiorHex} name={unit.interiorName} /></td>
                   <td>{unit.branchName || <span style={{ color: 'var(--muted-soft)' }}>—</span>}</td>
                   <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{unit.vin || '—'}</td>
                   <td><span className={`badge ${STATUS_BADGE_CLASS[unit.status]}`}>{STATUS_LABELS[unit.status]}</span></td>

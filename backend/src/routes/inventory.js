@@ -16,31 +16,44 @@ async function validateBranchId(branchId) {
 }
 
 // Mirrors the applicability rule resolveAccessories() enforces on quotes (routes/quotes.js):
-// never trust a client-submitted accessory id at face value — a color that exists but
+// never trust a client-submitted accessory id at face value — an option that exists but
 // belongs to a DIFFERENT vehicle model must not be accepted just because the id is valid.
-async function validateColorAccessoryId(colorAccessoryId, vehicleName) {
-  if (!colorAccessoryId) return null;
-  const accessory = await getAsync('SELECT id, vehicleModels FROM accessories WHERE id = ?', [colorAccessoryId]);
-  if (!accessory) return 'Onbekende kleuroptie';
+// Shared by colorAccessoryId and interiorAccessoryId — same rule, different catalog column.
+async function validateAccessoryId(accessoryId, vehicleName, unknownMessage, notApplicableMessage) {
+  if (!accessoryId) return null;
+  const accessory = await getAsync('SELECT id, vehicleModels FROM accessories WHERE id = ?', [accessoryId]);
+  if (!accessory) return unknownMessage;
   const applicableModels = JSON.parse(accessory.vehicleModels || '[]');
   if (applicableModels.length > 0 && !applicableModels.includes(vehicleName)) {
-    return 'Deze kleuroptie is niet beschikbaar voor dit voertuig';
+    return notApplicableMessage;
   }
   return null;
 }
 
-// Joins in the display fields the UI needs (vehicle name/model, branch name, color name +
-// swatch) so the frontend doesn't have to stitch three catalogs together itself.
+function validateColorAccessoryId(colorAccessoryId, vehicleName) {
+  return validateAccessoryId(colorAccessoryId, vehicleName, 'Onbekende kleuroptie', 'Deze kleuroptie is niet beschikbaar voor dit voertuig');
+}
+
+function validateInteriorAccessoryId(interiorAccessoryId, vehicleName) {
+  return validateAccessoryId(interiorAccessoryId, vehicleName, 'Onbekende interieuroptie', 'Deze interieuroptie is niet beschikbaar voor dit voertuig');
+}
+
+// Joins in the display fields the UI needs (vehicle name/model, branch name, color/interior
+// name + swatch) so the frontend doesn't have to stitch catalogs together itself. Two
+// separate LEFT JOINs against the same accessories table (aliased) since a unit's exterior
+// color and interior/upholstery are two independent catalog rows.
 const SELECT_WITH_JOINS = `
   SELECT
     inv.*,
     v.name AS vehicleName, v.model AS vehicleModel,
     b.name AS branchName,
-    a.name AS colorName, a.colorHex AS colorHex
+    a.name AS colorName, a.colorHex AS colorHex,
+    ai.name AS interiorName, ai.colorHex AS interiorHex
   FROM inventory inv
   JOIN vehicles v ON v.id = inv.vehicleId
   LEFT JOIN branches b ON b.id = inv.branchId
   LEFT JOIN accessories a ON a.id = inv.colorAccessoryId
+  LEFT JOIN accessories ai ON ai.id = inv.interiorAccessoryId
 `;
 
 // Every authenticated user can see stock levels — "is dit model op voorraad?" is a
@@ -64,7 +77,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { vehicleId, branchId, vin, colorAccessoryId, status = 'in_stock', expectedArrival, reservedFor, notes } = req.body;
+    const { vehicleId, branchId, vin, colorAccessoryId, interiorAccessoryId, status = 'in_stock', expectedArrival, reservedFor, notes } = req.body;
     if (!vehicleId || !STATUSES.includes(status)) {
       return res.status(400).json({ error: 'vehicleId en een geldige status zijn verplicht' });
     }
@@ -80,12 +93,16 @@ router.post('/', requireManager, async (req, res) => {
     if (colorError) {
       return res.status(400).json({ error: colorError });
     }
+    const interiorError = await validateInteriorAccessoryId(interiorAccessoryId, vehicle.name);
+    if (interiorError) {
+      return res.status(400).json({ error: interiorError });
+    }
 
     const id = uuidv4();
     await runAsync(
-      `INSERT INTO inventory (id, vehicleId, branchId, vin, colorAccessoryId, status, expectedArrival, reservedFor, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, vehicleId, branchId || null, vin || null, colorAccessoryId || null, status, expectedArrival || null, reservedFor || null, notes || null]
+      `INSERT INTO inventory (id, vehicleId, branchId, vin, colorAccessoryId, interiorAccessoryId, status, expectedArrival, reservedFor, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, vehicleId, branchId || null, vin || null, colorAccessoryId || null, interiorAccessoryId || null, status, expectedArrival || null, reservedFor || null, notes || null]
     );
 
     await logAudit({
@@ -110,7 +127,7 @@ router.put('/:id', requireManager, async (req, res) => {
       return res.status(404).json({ error: 'Voorraadeenheid niet gevonden' });
     }
 
-    const { branchId, vin, colorAccessoryId, status, expectedArrival, reservedFor, notes } = req.body;
+    const { branchId, vin, colorAccessoryId, interiorAccessoryId, status, expectedArrival, reservedFor, notes } = req.body;
     if (status !== undefined && !STATUSES.includes(status)) {
       return res.status(400).json({ error: `status moet één van volgende zijn: ${STATUSES.join(', ')}` });
     }
@@ -127,14 +144,22 @@ router.put('/:id', requireManager, async (req, res) => {
         return res.status(400).json({ error: colorError });
       }
     }
+    if (interiorAccessoryId !== undefined) {
+      const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [existing.vehicleId]);
+      const interiorError = await validateInteriorAccessoryId(interiorAccessoryId, vehicle?.name);
+      if (interiorError) {
+        return res.status(400).json({ error: interiorError });
+      }
+    }
 
     await runAsync(
-      `UPDATE inventory SET branchId = ?, vin = ?, colorAccessoryId = ?, status = ?, expectedArrival = ?, reservedFor = ?, notes = ?, updatedAt = CURRENT_TIMESTAMP
+      `UPDATE inventory SET branchId = ?, vin = ?, colorAccessoryId = ?, interiorAccessoryId = ?, status = ?, expectedArrival = ?, reservedFor = ?, notes = ?, updatedAt = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
         branchId !== undefined ? (branchId || null) : existing.branchId,
         vin !== undefined ? (vin || null) : existing.vin,
         colorAccessoryId !== undefined ? (colorAccessoryId || null) : existing.colorAccessoryId,
+        interiorAccessoryId !== undefined ? (interiorAccessoryId || null) : existing.interiorAccessoryId,
         status !== undefined ? status : existing.status,
         expectedArrival !== undefined ? (expectedArrival || null) : existing.expectedArrival,
         reservedFor !== undefined ? (reservedFor || null) : existing.reservedFor,
