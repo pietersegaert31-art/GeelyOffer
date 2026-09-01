@@ -12,7 +12,7 @@ import AccessoriesSelector from './AccessoriesSelector'
 import PricingSummary from './PricingSummary'
 import CustomerForm from './CustomerForm'
 import TradeInForm from './TradeInForm'
-import { VEHICLE_IMAGES, VEHICLE_COLOR_FRONT_IMAGES, VEHICLE_REAR_IMAGES } from '../utils/vehicleImages'
+import { VEHICLE_IMAGES, VEHICLE_COLOR_FRONT_IMAGES, VEHICLE_REAR_IMAGES, VEHICLE_INTERIOR_IMAGES } from '../utils/vehicleImages'
 
 function needsApprovalWarning(discountType, discountValue, role) {
   if (['admin', 'sales_manager'].includes(role)) return false
@@ -246,6 +246,7 @@ function QuoteBuilder({ onQuoteCreated }) {
   const previewFrontImage = (selectedColorAccessory && VEHICLE_COLOR_FRONT_IMAGES[selectedColorAccessory.name])
     || (selectedVariant && VEHICLE_IMAGES[selectedVariant.name])
   const previewRearImage = selectedVariant && VEHICLE_REAR_IMAGES[selectedVariant.name]
+  const previewInteriorImage = selectedVariant && VEHICLE_INTERIOR_IMAGES[selectedVariant.name]
 
   return (
     <div className="page-shell">
@@ -513,6 +514,11 @@ function QuoteBuilder({ onQuoteCreated }) {
                       <div className="vehicle-color-preview-image vehicle-color-preview-secondary">
                         <img src={previewRearImage} alt={`${selectedVariant.name} — achteraanzicht`} />
                         <span className="vehicle-color-preview-caption">Referentiebeeld — kleur op deze hoek kan afwijken van uw keuze</span>
+                      </div>
+                    )}
+                    {previewInteriorImage && (
+                      <div className="vehicle-color-preview-image vehicle-color-preview-secondary">
+                        <img src={previewInteriorImage} alt={`${selectedVariant.name} — interieur`} />
                       </div>
                     )}
                   </div>

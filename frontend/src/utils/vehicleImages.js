@@ -16,6 +16,9 @@ import starrayVolcanicGreyFront from '../assets/vehicles/colors/starray-volcanic
 import starrayPolarBlackFront from '../assets/vehicles/colors/starray-polar-black-front.jpg'
 import starrayRear from '../assets/vehicles/colors/starray-rear.jpg'
 
+import e5Interior from '../assets/vehicles/interior/e5-interior.jpg'
+import starrayInterior from '../assets/vehicles/interior/starray-interior.jpg'
+
 // Default (uncolored) photo per model — shown before a paint color is picked, and for a
 // model with no per-color photos at all (Geely E2 is still "coming soon", no configurator).
 export const VEHICLE_IMAGES = {
@@ -47,4 +50,12 @@ export const VEHICLE_COLOR_FRONT_IMAGES = {
 export const VEHICLE_REAR_IMAGES = {
   'Geely E5': e5Rear,
   'Starray EM-i': starrayRear,
+}
+
+// One interior photo per model. Each model currently has only a single upholstery option
+// in the catalog (see accessoriesSeed.js), so — unlike the exterior colors above — there's
+// no per-choice variant to key this by; it just shows the upholstery that's actually sold.
+export const VEHICLE_INTERIOR_IMAGES = {
+  'Geely E5': e5Interior,
+  'Starray EM-i': starrayInterior,
 }

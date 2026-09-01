@@ -36,6 +36,14 @@ const VEHICLE_COLOR_IMAGES = {
   'Metallic: Polar Black': path.join(__dirname, '../assets/vehicles/colors/starray-polar-black-front.jpg'),
 };
 
+// One interior photo per model — each model currently has only a single upholstery option
+// in the catalog, so (unlike the exterior colors above) there's no per-choice variant to
+// key this by; it just shows the upholstery that's actually sold.
+const VEHICLE_INTERIOR_IMAGES = {
+  'Geely E5': path.join(__dirname, '../assets/vehicles/interior/e5-interior.jpg'),
+  'Starray EM-i': path.join(__dirname, '../assets/vehicles/interior/starray-interior.jpg'),
+};
+
 // The legal entity actually issuing the quote (a Geely dealer) — distinct from "Geely",
 // the vehicle brand shown via the logo/imagery elsewhere on the PDF. Not per-branch or
 // per-quote data, so it's a plain constant rather than something stored on the quote.
@@ -702,6 +710,19 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     drawContinuationHeader(doc, T.equipmentTitle, vehicleLabel, smallLogoWidth);
 
     drawEquipmentColumns(doc, equipment, 108);
+  }
+
+  // ===================== Interieur (own page, one full-width photo) =====================
+  const interiorImagePath = VEHICLE_INTERIOR_IMAGES[vehicle.name];
+  if (interiorImagePath) {
+    doc.addPage();
+    drawContinuationHeader(doc, T.interiorTitle, vehicleLabel, smallLogoWidth);
+
+    const img = doc.openImage(interiorImagePath);
+    const aspect = img.width / img.height;
+    const drawWidth = CONTENT_WIDTH;
+    const drawHeight = CONTENT_WIDTH / aspect;
+    doc.image(interiorImagePath, PAGE_LEFT, 108, { width: drawWidth, height: drawHeight });
   }
 
   // ===================== Technische gegevens & afmetingen (own page, two columns) =====================
