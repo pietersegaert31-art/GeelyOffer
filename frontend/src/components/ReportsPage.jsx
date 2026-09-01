@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api, formatPrice } from '../utils/api'
 
 function formatPercent(ratio) {
@@ -38,15 +38,24 @@ function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Guards against a slower, stale response overwriting a newer one — clicking "Filteren"
+  // again with a different date range/branch before the first request resolves would
+  // otherwise let whichever response lands last win, silently showing numbers for a filter
+  // combination that's no longer selected. Same pattern as InventoryPage.jsx's load().
+  const requestIdRef = useRef(0)
   const load = async () => {
+    const requestId = ++requestIdRef.current
     try {
       setLoading(true)
       setError('')
-      setSummary(await api.getReportsSummary({ from, to, branchId }))
+      const data = await api.getReportsSummary({ from, to, branchId })
+      if (requestId !== requestIdRef.current) return
+      setSummary(data)
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       setError('Kon rapport niet laden: ' + err.message)
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }
 

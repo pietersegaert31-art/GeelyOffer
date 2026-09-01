@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { formatPrice, formatDate, formatQuoteNumber, api } from '../utils/api'
 import { STATUS_LABELS, QUOTE_STATUSES, DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
@@ -43,19 +43,27 @@ function QuoteList() {
   const [editingQuoteId, setEditingQuoteId] = useState(null)
   const [error, setError] = useState('')
 
+  // Guards against a slower, stale response overwriting a newer one — e.g. rapidly
+  // toggling the "Verloopt binnenkort"/"Vervolg nodig" filter pills fires overlapping
+  // requests, and without this the one that resolves last (not the one matching the
+  // currently-selected filter) would win. Same pattern as InventoryPage.jsx's load().
+  const requestIdRef = useRef(0)
   const load = async () => {
+    const requestId = ++requestIdRef.current
     try {
       setLoading(true)
       setError('')
       const data = await api.getQuotes({ search, status, expiringSoon, needsFollowup, page, limit: LIMIT })
+      if (requestId !== requestIdRef.current) return
       setQuotes(data.quotes)
       setTotal(data.total)
       setTotalPages(data.totalPages)
       setSelectedIds([])
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       setError('Kon offertes niet laden: ' + err.message)
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }
 
@@ -129,13 +137,21 @@ function QuoteList() {
     )
     if (!confirmed) return
 
-    try {
-      setLoading(true)
-      await Promise.all(selectedIds.map((id) => api.deleteQuote(id)))
-      await load()
-    } catch (err) {
-      alert('Verwijderen mislukt: ' + err.message)
-      setLoading(false)
+    setLoading(true)
+    // allSettled rather than all: a colleague's quote in the selection can 403 (only its
+    // owner or a manager can delete it — see canModifyQuote in routes/quotes.js) while the
+    // rest legitimately succeed. Promise.all would reject on that first failure and skip
+    // the reload entirely, leaving the already-deleted rows still shown in the table until
+    // a manual refresh (and a stale "Bewerken"/"PDF" click on one then 404s).
+    const results = await Promise.allSettled(selectedIds.map((id) => api.deleteQuote(id)))
+    const failures = results.filter((r) => r.status === 'rejected')
+    await load()
+    if (failures.length > 0) {
+      alert(
+        failures.length === results.length
+          ? 'Verwijderen mislukt: ' + failures[0].reason.message
+          : `${results.length - failures.length} van ${results.length} offertes verwijderd. ${failures.length} mislukt: ${failures[0].reason.message}`
+      )
     }
   }
 

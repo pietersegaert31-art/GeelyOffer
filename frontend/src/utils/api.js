@@ -144,7 +144,20 @@ export const api = {
   // PDF
   async generatePDF(quoteId) {
     const response = await fetch(`${API_BASE_URL}/pdf/${quoteId}`, { credentials: 'include' })
-    if (!response.ok) throw new Error('Failed to generate PDF')
+    if (!response.ok) {
+      // Same error-extraction as request() above — this route can't go through request()
+      // itself (the success response is a PDF blob, not JSON), but a failure response
+      // still is, and the specific reason (e.g. "Quote not found") is worth surfacing
+      // instead of a one-size-fits-all message that gives the rep no clue what to fix.
+      let message = `Failed to generate PDF (${response.status})`
+      try {
+        const data = await response.json()
+        if (data?.error) message = data.error
+      } catch {
+        // response had no JSON body — keep the generic message
+      }
+      throw new Error(message)
+    }
     return response.blob()
   },
 

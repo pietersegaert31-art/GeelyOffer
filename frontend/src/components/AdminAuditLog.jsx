@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { api, formatPrice, formatDate } from '../utils/api'
-import { STATUS_LABELS, INVENTORY_STATUS_LABELS } from '../utils/constants'
+import { STATUS_LABELS, INVENTORY_STATUS_LABELS, ROLE_LABELS } from '../utils/constants'
 
 const LIMIT = 50
 
@@ -9,6 +9,7 @@ const ENTITY_TYPE_LABELS = {
   accessory: 'Optie',
   vehicle: 'Voertuig',
   inventory: 'Voorraad',
+  user: 'Gebruiker',
 }
 
 const ACTION_LABELS = {
@@ -21,6 +22,9 @@ const ACTION_LABELS = {
   created: 'Aangemaakt',
   gdpr_anonymized: 'Persoonsgegevens verwijderd (GDPR)',
   accepted_online: 'Online bevestigd door klant',
+  role_changed: 'Rol gewijzigd',
+  password_reset: 'Wachtwoord gereset',
+  deleted: 'Verwijderd',
 }
 
 // Human-readable field names for gdpr_anonymized's fieldsCleared list (see gdpr.js) — falls
@@ -55,17 +59,32 @@ function describeDetails(entry) {
     case 'discount_changed':
       return `${fmtDiscount(d.from)} → ${fmtDiscount(d.to)}`
     case 'status_changed':
+      // Users log {name, active} — a single new state, not a from→to pair like quotes and
+      // inventory — since "active" toggling has no in-between states worth showing.
+      if (entry.entityType === 'user') {
+        return `${d.name || ''}: ${d.active ? 'Actief' : 'Inactief'}`
+      }
       return `${statusLabels[d.from] || d.from} → ${statusLabels[d.to] || d.to}`
     case 'price_changed':
       return `${d.name || ''}: ${formatPrice(d.from)} → ${formatPrice(d.to)}`
     case 'created':
-      // Inventory's 'created' details carry {vehicle, status} (see inventory.js) instead of
-      // the {name, price} shape every other entity type logs — without this branch it fell
-      // through to `d.name`/`d.price`, both undefined, rendering a blank Details cell.
+      // Inventory's 'created' details carry {vehicle, status} (see inventory.js), and a
+      // user's carry {name, email, role} (see users.js) — different shapes than the
+      // {name, price} every other entity type logs. Without branching on entityType these
+      // fell through to `d.name`/`d.price`, rendering a blank or wrong Details cell.
       if (entry.entityType === 'inventory') {
         return `${d.vehicle || ''}${d.status ? ` (${statusLabels[d.status] || d.status})` : ''}`
       }
+      if (entry.entityType === 'user') {
+        return `${d.name || ''} (${d.email || ''}${d.role ? `, ${ROLE_LABELS[d.role] || d.role}` : ''})`
+      }
       return `${d.name || ''}${d.price !== undefined ? ` (${formatPrice(d.price)})` : ''}`
+    case 'role_changed':
+      return `${d.name || ''}: ${ROLE_LABELS[d.from] || d.from} → ${ROLE_LABELS[d.to] || d.to}`
+    case 'password_reset':
+      return d.name || '—'
+    case 'deleted':
+      return `${d.name || ''}${d.email ? ` (${d.email})` : ''}`
     case 'gdpr_anonymized':
       return d.fieldsCleared?.length
         ? `Gewist: ${d.fieldsCleared.map((f) => FIELD_LABELS[f] || f).join(', ')}`
@@ -86,17 +105,25 @@ function AdminAuditLog() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Guards against a slower, stale response overwriting a newer one — switching the
+  // entityType filter or paging quickly can otherwise let an older request resolve after
+  // a newer one and show entries that don't match the currently-selected filter.
+  const requestIdRef = useRef(0)
   const load = async () => {
+    const requestId = ++requestIdRef.current
     try {
       setLoading(true)
       setError('')
       const data = await api.getAuditLog({ entityType, page, limit: LIMIT })
+      if (requestId !== requestIdRef.current) return
       setEntries(data.entries)
       setTotalPages(data.totalPages)
       setTotal(data.total)
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       setError('Kon logboek niet laden: ' + err.message)
     } finally {
+      if (requestId !== requestIdRef.current) return
       setLoading(false)
     }
   }
@@ -117,6 +144,7 @@ function AdminAuditLog() {
           <option value="accessory">Opties</option>
           <option value="vehicle">Voertuigen</option>
           <option value="inventory">Voorraad</option>
+          <option value="user">Gebruikers</option>
         </select>
       </div>
 
