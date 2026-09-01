@@ -3,8 +3,14 @@ import { formatPrice } from '../utils/api'
 import { SINGLE_SELECT_CATEGORIES } from '../utils/constants'
 
 function AccessoriesSelector({ accessories, selectedAccessories, onSelectAccessory, vehicleModel }) {
+  // The API always returns vehicleModels as an array (never null/undefined — see
+  // toPublicAccessory in routes/accessories.js), so `!acc.vehicleModels` never actually
+  // catches the "applies to every model" case (an empty array, shown as "Alle modellen" in
+  // AdminAccessories.jsx) — it has to be checked by length, the same way InventoryPage.jsx
+  // already does it correctly. Without this, a universal accessory was never selectable
+  // here for any vehicle.
   const availableAccessories = accessories.filter(
-    acc => !acc.vehicleModels || acc.vehicleModels.includes(vehicleModel)
+    acc => !acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleModel)
   )
   const categories = [...new Set(availableAccessories.map(a => a.category))]
 

@@ -17,7 +17,14 @@ function PricingSummary({ pricing, tradeInValue = 0 }) {
       {pricing.discountAmount > 0 && (
         <div className="price-row">
           <span className="price-label">
-            Korting ({pricing.discountType === 'fixed' ? formatPrice(pricing.discountValue) : `${pricing.discountValue}%`})
+            {/* For a fixed discount, discountValue is the raw amount the rep typed — but
+                calculatePricing (backend/src/utils/pricing.js) caps discountAmount at the
+                discountable subtotal so the price can never go negative, and the two can
+                disagree (e.g. a €5000 discount on a €1000 discountable base only actually
+                deducts €1000). Showing the raw value here as if it were what got deducted
+                would contradict the amount on the very next line, so only the percentage
+                case — never capped, always exactly what was entered — gets a number here. */}
+            Korting{pricing.discountType === 'fixed' ? '' : ` (${pricing.discountValue}%)`}
           </span>
           <span className="price-value price-value--discount">-{formatPrice(pricing.discountAmount)}</span>
         </div>

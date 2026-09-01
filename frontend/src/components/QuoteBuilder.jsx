@@ -145,20 +145,30 @@ function QuoteBuilder({ onQuoteCreated }) {
   // match just because interior wasn't part of what they configured.
   const [matchingStock, setMatchingStock] = useState({ inStock: [], incoming: [] })
   const stockMatchRequestIdRef = useRef(0)
+  // Depending on the actual color/interior accessory id (not the whole selectedAccessories
+  // array) means toggling an unrelated option — a towing hook, a charging cable — doesn't
+  // re-trigger this effect and fire a redundant inventory lookup; those ids only actually
+  // change when the color or interior selection itself changes.
+  const selectedColorAccessoryId = selectedAccessories.find((acc) => acc.category === 'exterior')?.id
+  const selectedInteriorAccessoryId = selectedAccessories.find((acc) => acc.category === 'interior')?.id
   useEffect(() => {
-    const colorAccessory = selectedAccessories.find((acc) => acc.category === 'exterior')
-    const interiorAccessory = selectedAccessories.find((acc) => acc.category === 'interior')
-    if (!selectedVariant || !colorAccessory) {
+    // Bumped unconditionally, before the early-return below, so a request already in
+    // flight is correctly invalidated even when the new state is "nothing selected" — the
+    // early return still needs to win over a slower, now-stale response that resolves
+    // after it. (Bumping only on the fetch path let a stale response's `requestId` still
+    // equal the never-advanced ref, so it would "win" and repopulate a notice for a color
+    // the rep had already deselected.)
+    const requestId = ++stockMatchRequestIdRef.current
+    if (!selectedVariant || !selectedColorAccessoryId) {
       setMatchingStock({ inStock: [], incoming: [] })
       return
     }
-    const requestId = ++stockMatchRequestIdRef.current
     api.getInventory({ vehicleId: selectedVariant.id })
       .then((units) => {
         if (requestId !== stockMatchRequestIdRef.current) return
         const matches = units.filter((u) =>
-          u.colorAccessoryId === colorAccessory.id
-          && (!interiorAccessory || u.interiorAccessoryId === interiorAccessory.id)
+          u.colorAccessoryId === selectedColorAccessoryId
+          && (!selectedInteriorAccessoryId || u.interiorAccessoryId === selectedInteriorAccessoryId)
         )
         setMatchingStock({
           inStock: matches.filter((u) => u.status === 'in_stock'),
@@ -170,7 +180,7 @@ function QuoteBuilder({ onQuoteCreated }) {
         if (requestId !== stockMatchRequestIdRef.current) return
         setMatchingStock({ inStock: [], incoming: [] })
       })
-  }, [selectedVariant, selectedAccessories])
+  }, [selectedVariant, selectedColorAccessoryId, selectedInteriorAccessoryId])
 
   // Mandatory accessories (e.g. the delivery pack) are always part of the quote — add
   // any that apply to the selected model and aren't already in the list, so the live
@@ -179,7 +189,13 @@ function QuoteBuilder({ onQuoteCreated }) {
   // an accurate live preview, not the source of truth for what actually gets billed.
   useEffect(() => {
     if (!selectedModel || accessories.length === 0) return
-    const mandatory = accessories.filter((a) => a.mandatory && a.vehicleModels?.includes(selectedModel))
+    // An empty vehicleModels array means "applies to every model" (see resolveAccessories
+    // in routes/quotes.js and AdminAccessories.jsx's "Alle modellen") — without the length
+    // check, `[].includes(selectedModel)` is always false, so a universal mandatory fee
+    // would never show up in this live preview for any model (the backend now applies it
+    // correctly regardless — see resolveMandatoryAccessories — this was purely a preview
+    // gap, but one that made the quote look cheaper than what actually gets billed).
+    const mandatory = accessories.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel)))
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
       const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
@@ -476,12 +492,21 @@ function QuoteBuilder({ onQuoteCreated }) {
                     <input
                       type="number"
                       min="0"
-                      max={discountType === 'percentage' ? 100 : undefined}
+                      max={discountType === 'percentage' ? 100 : pricing?.subtotalBeforeDiscount}
                       step={discountType === 'percentage' ? 0.5 : 1}
                       value={discountValue}
                       onChange={(e) => {
                         const raw = parseFloat(e.target.value) || 0
-                        setDiscountValue(discountType === 'percentage' ? Math.min(100, Math.max(0, raw)) : Math.max(0, raw))
+                        // A fixed discount above the pre-discount total is never meaningful
+                        // (the backend already caps the actual deduction there — see
+                        // calculatePricing — but letting the rep type/see a nonsensical
+                        // number here first makes PricingSummary show two disagreeing
+                        // figures for the same discount).
+                        setDiscountValue(
+                          discountType === 'percentage'
+                            ? Math.min(100, Math.max(0, raw))
+                            : Math.max(0, pricing?.subtotalBeforeDiscount !== undefined ? Math.min(raw, pricing.subtotalBeforeDiscount) : raw)
+                        )
                       }}
                     />
                   </div>

@@ -59,6 +59,13 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   // that only ever covered the old value the moment the rep changes it, instead of only
   // catching up after the next save round-trip.
   const originalDiscountRef = useRef({ type: 'percentage', value: 0 })
+  // The quote's status as it was when THIS edit session loaded — not the live `status`
+  // state below, which the rep might be about to change. A customer who already accepted
+  // this quote signed off on a specific price/configuration, so a plain rep shouldn't be
+  // able to silently change it afterward (the backend enforces this too, on PUT /:id — see
+  // routes/quotes.js); a manager still can, to correct a genuine mistake.
+  const [originalStatus, setOriginalStatus] = useState('draft')
+  const isLockedAccepted = originalStatus === 'accepted' && !['admin', 'sales_manager'].includes(user.role)
 
   useEffect(() => {
     let cancelled = false
@@ -78,9 +85,14 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
         // vehicle-applicability check below, opening any quote would also silently pick
         // up the OTHER model's same-named accessory — invisible in the UI (which only
         // ever displays options for this vehicle) but included in what gets saved.
+        // vehicleModels is always an array (never null) from the API — `!acc.vehicleModels`
+        // alone would never actually match the "applies to every model" case (an empty
+        // array), silently dropping a universal accessory (and its price) from the quote
+        // the next time it's opened and saved. Checked by length instead, same as
+        // AccessoriesSelector.jsx and InventoryPage.jsx.
         setSelectedAccessories(
           catalog.filter((acc) =>
-            (!acc.vehicleModels || acc.vehicleModels.includes(vehicleData.name)) &&
+            (!acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleData.name)) &&
             quote.items?.some((item) => item.itemName === acc.name)
           )
         )
@@ -91,6 +103,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
         originalDiscountRef.current = { type: loadedDiscountType, value: loadedDiscountValue }
         setDiscountApprovalStatus(quote.discountApprovalStatus || 'not_required')
         setStatus(quote.status || 'draft')
+        setOriginalStatus(quote.status || 'draft')
         setCustomerInfo({
           customerName: quote.customerName || '',
           customerEmail: quote.customerEmail || '',
@@ -142,7 +155,10 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   // injects it independently on save regardless of what's sent here.
   useEffect(() => {
     if (!vehicle || accessoriesCatalog.length === 0) return
-    const mandatory = accessoriesCatalog.filter((a) => a.mandatory && a.vehicleModels?.includes(vehicle.name))
+    // Same "empty vehicleModels = every model" gap as AccessoriesSelector.jsx above —
+    // without the length check, a universal mandatory fee would never show in this
+    // preview for any model.
+    const mandatory = accessoriesCatalog.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name)))
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
       const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
@@ -204,6 +220,11 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
         </div>
 
         {error && <div className="error">{error}</div>}
+        {isLockedAccepted && (
+          <div className="customer-history-notice">
+            <strong>Al geaccepteerd door de klant.</strong> Deze offerte kan niet meer gewijzigd worden — enkel een sales manager of beheerder kan een reeds geaccepteerde offerte nog aanpassen.
+          </div>
+        )}
 
         {loading ? (
           <div className="loading" style={{ minHeight: '200px' }}><div className="spinner" /></div>
@@ -254,12 +275,19 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
                     id="editor-discount"
                     type="number"
                     min="0"
-                    max={discountType === 'percentage' ? 100 : undefined}
+                    max={discountType === 'percentage' ? 100 : pricing?.subtotalBeforeDiscount}
                     step={discountType === 'percentage' ? 0.5 : 1}
                     value={discountValue}
                     onChange={(e) => {
                       const raw = parseFloat(e.target.value) || 0
-                      setDiscountValue(discountType === 'percentage' ? Math.min(100, Math.max(0, raw)) : Math.max(0, raw))
+                      // Same reasoning as QuoteBuilder.jsx: a fixed discount above the
+                      // pre-discount total is never meaningful, and letting it through here
+                      // is what makes PricingSummary show two disagreeing numbers.
+                      setDiscountValue(
+                        discountType === 'percentage'
+                          ? Math.min(100, Math.max(0, raw))
+                          : Math.max(0, pricing?.subtotalBeforeDiscount !== undefined ? Math.min(raw, pricing.subtotalBeforeDiscount) : raw)
+                      )
                     }}
                   />
                 </div>
@@ -293,7 +321,12 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
             <div className="modal-side">
               {pricing && <PricingSummary pricing={pricing} tradeInValue={tradeIn.tradeInEnabled ? tradeIn.tradeInValue : 0} />}
               <div className="btn-group" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSave}
+                  disabled={saving || isLockedAccepted}
+                  title={isLockedAccepted ? 'Al geaccepteerd door de klant — enkel een sales manager of beheerder kan dit nog wijzigen' : undefined}
+                >
                   {saving ? 'Opslaan...' : 'Wijzigingen opslaan'}
                 </button>
                 <button className="btn btn-outline" onClick={onClose} disabled={saving}>

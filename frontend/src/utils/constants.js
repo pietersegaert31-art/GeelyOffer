@@ -51,10 +51,15 @@ export const DISCOUNT_APPROVAL_BADGE_CLASS = {
   rejected: 'declined',
 }
 
-// A car can only have one paint color at a time — categories listed here are rendered
-// as mutually exclusive in AccessoriesSelector (picking one automatically clears any
-// other selection in the same category), instead of independent checkboxes.
-export const SINGLE_SELECT_CATEGORIES = ['exterior']
+// A car can only have one paint color, and only one interior/upholstery, at a time —
+// categories listed here are rendered as mutually exclusive in AccessoriesSelector
+// (picking one automatically clears any other selection in the same category), instead of
+// independent checkboxes. 'interior' is included even though every model currently has
+// only one interior option (so it's never actually been ambiguous yet) — once a model gets
+// a second one, this is what keeps a customer from ending up with two interiors selected,
+// which would otherwise make the stock-match suggestion (QuoteBuilder.jsx) pick an
+// arbitrary one of the two via .find().
+export const SINGLE_SELECT_CATEGORIES = ['exterior', 'interior']
 
 // Language the customer-facing PDF and e-mail are generated in — see
 // backend/src/i18n/translate.js. The app UI itself stays Dutch regardless of this choice.
