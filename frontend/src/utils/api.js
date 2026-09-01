@@ -198,6 +198,9 @@ export const api = {
   async gdprAnonymize(quoteIds) {
     return request('/gdpr/anonymize', { method: 'POST', body: JSON.stringify({ quoteIds }) })
   },
+  async gdprAnonymizeInventory(inventoryIds) {
+    return request('/gdpr/anonymize-inventory', { method: 'POST', body: JSON.stringify({ inventoryIds }) })
+  },
 
   // Audit log
   async getAuditLog({ entityType = '', entityId = '', page = 1, limit = 50 } = {}) {

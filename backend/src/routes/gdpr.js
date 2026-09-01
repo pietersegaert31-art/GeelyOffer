@@ -28,19 +28,34 @@ function toSummary(row) {
 // Finds every quote matching a free-text search across the identifying customer fields —
 // used to locate everything tied to a given person before an export or erasure request,
 // since the same customer might appear under slightly different spellings across quotes.
+// Also searches inventory.reservedFor: it's a free-text "customer name or quote reference"
+// field with no structured link back to a quote, so a customer's name can end up sitting
+// there too — surfaced separately since an inventory unit isn't a quote (no e-mail/phone/
+// address to export), it just needs its own path to get that name cleared.
 router.get('/search', async (req, res) => {
   try {
     const query = (req.query.q || '').trim();
-    if (!query) return res.json([]);
+    if (!query) return res.json({ quotes: [], inventoryMatches: [] });
     const term = `%${query.toLowerCase()}%`;
-    const quotes = await allAsync(
-      `SELECT * FROM quotes
-       WHERE LOWER(customerName) LIKE ? OR LOWER(customerEmail) LIKE ? OR customerPhone LIKE ?
-          OR LOWER(customerVatNumber) LIKE ? OR LOWER(customerCompany) LIKE ?
-       ORDER BY createdAt DESC LIMIT 50`,
-      [term, term, `%${query}%`, term, term]
-    );
-    res.json(quotes.map(toSummary));
+    // The two tables are unrelated to each other, so there's no reason to make the second
+    // wait on the first — run them concurrently.
+    const [quotes, inventoryMatches] = await Promise.all([
+      allAsync(
+        `SELECT * FROM quotes
+         WHERE LOWER(customerName) LIKE ? OR LOWER(customerEmail) LIKE ? OR customerPhone LIKE ?
+            OR LOWER(customerVatNumber) LIKE ? OR LOWER(customerCompany) LIKE ?
+         ORDER BY createdAt DESC LIMIT 50`,
+        [term, term, `%${query}%`, term, term]
+      ),
+      allAsync(
+        `SELECT inv.id, inv.reservedFor, inv.status, v.name AS vehicleName, v.model AS vehicleModel
+         FROM inventory inv JOIN vehicles v ON v.id = inv.vehicleId
+         WHERE LOWER(inv.reservedFor) LIKE ?
+         ORDER BY inv.updatedAt DESC LIMIT 50`,
+        [term]
+      ),
+    ]);
+    res.json({ quotes: quotes.map(toSummary), inventoryMatches });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -99,6 +114,38 @@ router.post('/anonymize', async (req, res) => {
         entityId: id,
         action: 'gdpr_anonymized',
         details: { fieldsCleared: ['customerName', 'customerEmail', 'customerPhone', 'customerCompany', 'customerVatNumber', 'customerStreet', 'customerPostalCode', 'customerCity', 'notes', 'acceptedByName'] },
+        user: req.user,
+      });
+      anonymized += 1;
+    }
+
+    res.json({ anonymized });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Clears just the reservedFor text on the given inventory units — the erasure counterpart
+// to the inventory half of /search above. Separate from /anonymize since an inventory unit
+// isn't a quote (nothing else on it is personal data to strip).
+router.post('/anonymize-inventory', async (req, res) => {
+  try {
+    const { inventoryIds } = req.body;
+    if (!Array.isArray(inventoryIds) || inventoryIds.length === 0) {
+      return res.status(400).json({ error: 'inventoryIds is verplicht en moet minstens 1 voorraadeenheid bevatten' });
+    }
+
+    let anonymized = 0;
+    for (const id of inventoryIds) {
+      const unit = await getAsync('SELECT id FROM inventory WHERE id = ?', [id]);
+      if (!unit) continue;
+
+      await runAsync(`UPDATE inventory SET reservedFor = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?`, [id]);
+      await logAudit({
+        entityType: 'inventory',
+        entityId: id,
+        action: 'gdpr_anonymized',
+        details: { fieldsCleared: ['reservedFor'] },
         user: req.user,
       });
       anonymized += 1;
