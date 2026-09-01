@@ -171,28 +171,45 @@ router.post('/:id/apply', async (req, res) => {
       ? selectedIndexes
       : allChanges.map((_, i) => i);
 
+    // Each change is applied independently — a failure on one (a transient DB error, a
+    // row deleted from the catalog since this import was parsed, ...) used to throw and
+    // abort the whole loop, leaving earlier changes already committed but the import
+    // stuck at status 'uploaded' with no record of what had actually gone through, and a
+    // retry would silently re-apply everything including those already-written rows.
+    // Now every change gets a chance regardless of an earlier one failing, and the
+    // response says exactly what succeeded and what didn't.
     let appliedCount = 0;
+    const failures = [];
     for (const idx of indexesToApply) {
       const change = allChanges[idx];
       if (!change) continue;
 
-      if (change.type === 'vehicle') {
-        await runAsync('UPDATE vehicles SET basePrice = ? WHERE id = ?', [change.newPrice, change.id]);
-      } else {
-        await runAsync('UPDATE accessories SET price = ? WHERE id = ?', [change.newPrice, change.id]);
+      try {
+        if (change.type === 'vehicle') {
+          await runAsync('UPDATE vehicles SET basePrice = ? WHERE id = ?', [change.newPrice, change.id]);
+        } else {
+          await runAsync('UPDATE accessories SET price = ? WHERE id = ?', [change.newPrice, change.id]);
+        }
+        await logAudit({
+          entityType: change.type,
+          entityId: change.id,
+          action: 'price_changed',
+          details: { name: change.label, from: change.currentPrice, to: change.newPrice, source: 'import', importId: row.id },
+          user: req.user,
+        });
+        appliedCount += 1;
+      } catch (rowError) {
+        failures.push({ label: change.label, error: rowError.message });
       }
-      await logAudit({
-        entityType: change.type,
-        entityId: change.id,
-        action: 'price_changed',
-        details: { name: change.label, from: change.currentPrice, to: change.newPrice, source: 'import', importId: row.id },
-        user: req.user,
-      });
-      appliedCount += 1;
     }
 
-    await runAsync(`UPDATE imports SET status = 'applied', appliedAt = CURRENT_TIMESTAMP WHERE id = ?`, [row.id]);
-    res.json({ applied: appliedCount });
+    // Only marked fully applied once at least one change actually went through — an
+    // all-failed batch stays 'uploaded' so it can genuinely be retried, rather than
+    // permanently locking the import into a state that already blocks re-applying.
+    if (appliedCount > 0) {
+      await runAsync(`UPDATE imports SET status = 'applied', appliedAt = CURRENT_TIMESTAMP WHERE id = ?`, [row.id]);
+    }
+    res.json({ applied: appliedCount, failed: failures.length, failures });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

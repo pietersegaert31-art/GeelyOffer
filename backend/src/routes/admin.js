@@ -17,7 +17,19 @@ router.get('/backup', (req, res) => {
   const filename = `geely-offertes-backup-${new Date().toISOString().slice(0, 10)}.db`;
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  fs.createReadStream(dbPath).pipe(res);
+  const stream = fs.createReadStream(dbPath);
+  // Without this, a read error here (the file removed or locked between the existsSync
+  // check above and the stream actually reading it) is an unhandled 'error' event — with
+  // no process-level uncaughtException handler anywhere in this app, that crashes the
+  // entire server for every user, not just the admin downloading the backup.
+  stream.on('error', (err) => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Kon back-up niet lezen: ' + err.message });
+    } else {
+      res.destroy();
+    }
+  });
+  stream.pipe(res);
 });
 
 export default router;

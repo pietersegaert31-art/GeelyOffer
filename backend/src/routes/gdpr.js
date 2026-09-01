@@ -4,8 +4,11 @@ import { requireAuth, requireAdmin, blockPendingPasswordChange } from '../middle
 import { logAudit } from '../utils/auditLog.js';
 
 const router = express.Router();
-// Admin-only across the board — this tool exports and permanently strips customer PII,
-// so it needs a tighter gate than the rest of the app's mostly-shared data visibility.
+// Gated behind requireAdmin rather than the plain 'sales' role — this tool exports and
+// permanently strips customer PII, so it needs a tighter gate than the rest of the app's
+// mostly-shared data visibility. Note requireAdmin allows sales_manager too, same as
+// requireManager (see middleware/auth.js) — that's the deliberate, app-wide "sales
+// managers are admin-equivalent" business decision, not a gap specific to this file.
 router.use(requireAuth, requireAdmin, blockPendingPasswordChange);
 
 function toSummary(row) {

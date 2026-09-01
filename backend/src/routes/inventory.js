@@ -19,10 +19,16 @@ async function validateBranchId(branchId) {
 // never trust a client-submitted accessory id at face value — an option that exists but
 // belongs to a DIFFERENT vehicle model must not be accepted just because the id is valid.
 // Shared by colorAccessoryId and interiorAccessoryId — same rule, different catalog column.
-async function validateAccessoryId(accessoryId, vehicleName, unknownMessage, notApplicableMessage) {
+// Also checks the accessory's own category matches the field it's being assigned to
+// (colorAccessoryId must be an 'exterior' option, interiorAccessoryId an 'interior' one) —
+// without this, colorAccessoryId could silently be set to an interior-catalog id (or the
+// reverse) as long as it applied to that model, corrupting the colorName/interiorName
+// display fields and confusing QuoteBuilder.jsx's stock-match comparison.
+async function validateAccessoryId(accessoryId, vehicleName, expectedCategory, unknownMessage, notApplicableMessage, wrongCategoryMessage) {
   if (!accessoryId) return null;
-  const accessory = await getAsync('SELECT id, vehicleModels FROM accessories WHERE id = ?', [accessoryId]);
+  const accessory = await getAsync('SELECT id, category, vehicleModels FROM accessories WHERE id = ?', [accessoryId]);
   if (!accessory) return unknownMessage;
+  if (accessory.category !== expectedCategory) return wrongCategoryMessage;
   const applicableModels = JSON.parse(accessory.vehicleModels || '[]');
   if (applicableModels.length > 0 && !applicableModels.includes(vehicleName)) {
     return notApplicableMessage;
@@ -31,11 +37,17 @@ async function validateAccessoryId(accessoryId, vehicleName, unknownMessage, not
 }
 
 function validateColorAccessoryId(colorAccessoryId, vehicleName) {
-  return validateAccessoryId(colorAccessoryId, vehicleName, 'Onbekende kleuroptie', 'Deze kleuroptie is niet beschikbaar voor dit voertuig');
+  return validateAccessoryId(
+    colorAccessoryId, vehicleName, 'exterior',
+    'Onbekende kleuroptie', 'Deze kleuroptie is niet beschikbaar voor dit voertuig', 'Deze optie is geen kleuroptie'
+  );
 }
 
 function validateInteriorAccessoryId(interiorAccessoryId, vehicleName) {
-  return validateAccessoryId(interiorAccessoryId, vehicleName, 'Onbekende interieuroptie', 'Deze interieuroptie is niet beschikbaar voor dit voertuig');
+  return validateAccessoryId(
+    interiorAccessoryId, vehicleName, 'interior',
+    'Onbekende interieuroptie', 'Deze interieuroptie is niet beschikbaar voor dit voertuig', 'Deze optie is geen interieuroptie'
+  );
 }
 
 // Joins in the display fields the UI needs (vehicle name/model, branch name, color/interior
@@ -137,18 +149,22 @@ router.put('/:id', requireManager, async (req, res) => {
         return res.status(400).json({ error: branchError });
       }
     }
-    if (colorAccessoryId !== undefined) {
+    if (colorAccessoryId !== undefined || interiorAccessoryId !== undefined) {
+      // Fetched once and reused for both checks below — colorAccessoryId and
+      // interiorAccessoryId validate against the exact same vehicle (existing.vehicleId
+      // never changes via this endpoint), so there's no reason to look it up twice.
       const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [existing.vehicleId]);
-      const colorError = await validateColorAccessoryId(colorAccessoryId, vehicle?.name);
-      if (colorError) {
-        return res.status(400).json({ error: colorError });
+      if (colorAccessoryId !== undefined) {
+        const colorError = await validateColorAccessoryId(colorAccessoryId, vehicle?.name);
+        if (colorError) {
+          return res.status(400).json({ error: colorError });
+        }
       }
-    }
-    if (interiorAccessoryId !== undefined) {
-      const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [existing.vehicleId]);
-      const interiorError = await validateInteriorAccessoryId(interiorAccessoryId, vehicle?.name);
-      if (interiorError) {
-        return res.status(400).json({ error: interiorError });
+      if (interiorAccessoryId !== undefined) {
+        const interiorError = await validateInteriorAccessoryId(interiorAccessoryId, vehicle?.name);
+        if (interiorError) {
+          return res.status(400).json({ error: interiorError });
+        }
       }
     }
 
