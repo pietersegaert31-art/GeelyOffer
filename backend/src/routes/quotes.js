@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
 import { calculatePricing, validatePricingInputs, discountNeedsApproval } from '../utils/pricing.js';
-import { requireAuth, requireManager, blockPendingPasswordChange } from '../middleware/auth.js';
+import { requireAuth, requireManager, isManagerRole, blockPendingPasswordChange } from '../middleware/auth.js';
 import { loadQuoteForPdf, generateQuotePdfBuffer } from './pdf.js';
 import { sendQuoteEmail } from '../utils/email.js';
 import { logAudit } from '../utils/auditLog.js';
@@ -40,8 +40,37 @@ export const BLOCKING_APPROVAL_STATUSES = ['pending', 'rejected'];
 // discount needs one only once it clears the threshold; a small/no discount never does.
 function computeDiscountApprovalStatus(discountType, discountValue, actorRole) {
   if (!discountValue || discountValue <= 0) return 'not_required';
-  if (['admin', 'sales_manager'].includes(actorRole)) return 'approved';
+  if (isManagerRole(actorRole)) return 'approved';
   return discountNeedsApproval(discountType, discountValue) ? 'pending' : 'not_required';
+}
+
+// Any rep can see every quote (a colleague's included, for cover during absence — see the
+// unscoped list query below), but mutating one — editing or deleting — is limited to
+// whoever created it or a manager, so a rep can't rewrite or remove a colleague's quote.
+// Shared by PUT and DELETE below so the rule can't drift between the two.
+function canModifyQuote(quote, user) {
+  return quote.createdBy === user.id || isManagerRole(user.role);
+}
+
+// tradeInYear/tradeInMileage were previously stored completely unvalidated — a non-numeric
+// tradeInMileage (a typo, or a hand-crafted request) would sail through as-is and only
+// surface once it hit `Number(quote.tradeInMileage).toLocaleString()` on the printed PDF,
+// rendering the literal text "NaN km" on a customer-facing document. Both are optional
+// (a rep may genuinely not know the year or exact mileage yet), so only checked when present.
+const CURRENT_YEAR = new Date().getFullYear();
+function validateTradeInDetails(tradeInYear, tradeInMileage) {
+  if (tradeInYear !== undefined && tradeInYear !== null && tradeInYear !== '') {
+    const year = Number(tradeInYear);
+    if (!Number.isInteger(year) || year < 1900 || year > CURRENT_YEAR + 1) {
+      return `tradeInYear must be a whole number between 1900 and ${CURRENT_YEAR + 1}`;
+    }
+  }
+  if (tradeInMileage !== undefined && tradeInMileage !== null && tradeInMileage !== '') {
+    if (!Number.isFinite(Number(tradeInMileage)) || Number(tradeInMileage) < 0) {
+      return 'tradeInMileage must be a non-negative number';
+    }
+  }
+  return null;
 }
 
 // The branch a quote gets attributed to is always the creating user's own assigned
@@ -104,7 +133,14 @@ async function resolveAccessories(items, vehicleName) {
       error.status = 400;
       throw error;
     }
-    const quantity = Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+    // Capped rather than just clamped to a positive integer — the quote builder never
+    // sends more than 1 per line itself (there's no per-accessory quantity input in the
+    // UI), so this is purely a backstop against a hand-crafted request ballooning the
+    // total with an absurd quantity on an otherwise-valid accessory id.
+    const MAX_ACCESSORY_QUANTITY = 100;
+    const quantity = Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= MAX_ACCESSORY_QUANTITY
+      ? item.quantity
+      : 1;
     resolved.push({ id: accessory.id, name: accessory.name, price: accessory.price, quantity, category: accessory.category, discountable: !!accessory.discountable });
   }
 
@@ -393,6 +429,12 @@ router.post('/', async (req, res) => {
     }
     if (tradeInEnabled && (!Number.isFinite(tradeInValue) || tradeInValue < 0)) {
       return res.status(400).json({ error: 'tradeInValue must be a non-negative number' });
+    }
+    if (tradeInEnabled) {
+      const tradeInDetailsError = validateTradeInDetails(tradeInYear, tradeInMileage);
+      if (tradeInDetailsError) {
+        return res.status(400).json({ error: tradeInDetailsError });
+      }
     }
 
     const vehicle = await getAsync('SELECT * FROM vehicles WHERE id = ?', [selectedVehicleId]);
@@ -686,6 +728,9 @@ router.put('/:id', async (req, res) => {
     if (!quote) {
       return res.status(404).json({ error: 'Quote not found' });
     }
+    if (!canModifyQuote(quote, req.user)) {
+      return res.status(403).json({ error: 'Je kan enkel je eigen offertes bewerken' });
+    }
 
     if (status !== undefined && !QUOTE_STATUSES.includes(status)) {
       return res.status(400).json({ error: `status must be one of: ${QUOTE_STATUSES.join(', ')}` });
@@ -701,6 +746,18 @@ router.put('/:id', async (req, res) => {
     const resolvedTradeInValue = tradeInValue !== undefined ? tradeInValue : quote.tradeInValue;
     if (resolvedTradeInEnabled && (!Number.isFinite(resolvedTradeInValue) || resolvedTradeInValue < 0)) {
       return res.status(400).json({ error: 'tradeInValue must be a non-negative number' });
+    }
+    // Validates only what THIS request actually submits, not the value inherited from the
+    // existing row — tradeInYear/tradeInMileage were unvalidated before this check existed,
+    // so a quote saved before then could already have a bad value sitting in the DB. Falling
+    // back to that inherited value here (like the rest of this handler does for other
+    // fields) would mean an edit that never touches the trade-in at all — fixing a typo in
+    // the customer's name, say — gets rejected by a field it never submitted.
+    if (resolvedTradeInEnabled) {
+      const tradeInDetailsError = validateTradeInDetails(tradeInYear, tradeInMileage);
+      if (tradeInDetailsError) {
+        return res.status(400).json({ error: tradeInDetailsError });
+      }
     }
 
     const basePrice = quote.basePrice;
@@ -852,9 +909,12 @@ router.put('/:id', async (req, res) => {
 // Delete a quote
 router.delete('/:id', async (req, res) => {
   try {
-    const quote = await getAsync('SELECT id FROM quotes WHERE id = ?', [req.params.id]);
+    const quote = await getAsync('SELECT id, createdBy FROM quotes WHERE id = ?', [req.params.id]);
     if (!quote) {
       return res.status(404).json({ error: 'Quote not found' });
+    }
+    if (!canModifyQuote(quote, req.user)) {
+      return res.status(403).json({ error: 'Je kan enkel je eigen offertes verwijderen' });
     }
 
     await runAsync('DELETE FROM quote_items WHERE quoteId = ?', [req.params.id]);

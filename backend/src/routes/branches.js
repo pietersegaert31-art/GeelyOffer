@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
-import { requireAuth, requireAdmin, blockPendingPasswordChange } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, isManagerRole, blockPendingPasswordChange } from '../middleware/auth.js';
 
 const router = express.Router();
 router.use(requireAuth, blockPendingPasswordChange);
@@ -10,7 +10,7 @@ router.use(requireAuth, blockPendingPasswordChange);
 // branch picker on the user form and the branch filter in reports), only admins can edit.
 router.get('/', async (req, res) => {
   try {
-    const includeInactive = req.query.all === 'true' && req.user.role === 'admin';
+    const includeInactive = req.query.all === 'true' && isManagerRole(req.user.role);
     const rows = await allAsync(
       includeInactive
         ? 'SELECT * FROM branches ORDER BY name ASC'

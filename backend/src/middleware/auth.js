@@ -34,21 +34,28 @@ export function blockPendingPasswordChange(req, res, next) {
   next();
 }
 
-// Sales managers get the same access as admins by business decision — the only thing
-// that still distinguishes the 'admin' role itself is the label shown in the UI (see
-// ROLE_LABELS), not any gated action. Kept as a separate function from requireManager
-// (which every route below already treats as identical to this) so a future actual
-// admin-only action has a natural, already-imported place to plug into without having to
-// touch every existing call site.
+// Sales managers get the same access as admins by business decision — every access check
+// in this app that distinguishes "staff" from "management" should key off this, not a
+// separately-typed-out ['admin', 'sales_manager'] array, so the two can never quietly
+// drift apart (e.g. one route recognizing a future new management role that another
+// forgot to add).
+export const MANAGER_ROLES = ['admin', 'sales_manager'];
+export function isManagerRole(role) {
+  return MANAGER_ROLES.includes(role);
+}
+
+// Kept as a separate function from requireManager (which every route below already treats
+// as identical to this) so a future actual admin-only action has a natural, already-
+// imported place to plug into without having to touch every existing call site.
 export function requireAdmin(req, res, next) {
-  if (!['admin', 'sales_manager'].includes(req.user?.role)) {
+  if (!isManagerRole(req.user?.role)) {
     return res.status(403).json({ error: 'Alleen beheerders en sales managers hebben toegang tot deze actie' });
   }
   next();
 }
 
 export function requireManager(req, res, next) {
-  if (!['admin', 'sales_manager'].includes(req.user?.role)) {
+  if (!isManagerRole(req.user?.role)) {
     return res.status(403).json({ error: 'Alleen beheerders en sales managers hebben toegang tot deze actie' });
   }
   next();

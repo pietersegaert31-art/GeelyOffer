@@ -121,7 +121,10 @@ router.post('/reset-password', async (req, res) => {
     }
 
     const tokenHash = hashResetToken(token);
-    const user = await getAsync('SELECT * FROM users WHERE passwordResetTokenHash = ?', [tokenHash]);
+    // Matches /login and /forgot-password's own active = 1 filter — a token issued while
+    // the account was still active must stop working the moment it's deactivated, the same
+    // way login itself already does, rather than leaving a side door to mutate the account.
+    const user = await getAsync('SELECT * FROM users WHERE passwordResetTokenHash = ? AND active = 1', [tokenHash]);
     if (!user || !user.passwordResetExpires || new Date(user.passwordResetExpires) < new Date()) {
       return res.status(400).json({ error: 'Deze resetlink is ongeldig of verlopen. Vraag een nieuwe aan.' });
     }

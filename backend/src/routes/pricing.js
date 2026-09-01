@@ -10,10 +10,10 @@ router.post('/calculate', (req, res) => {
   try {
     const { basePrice, accessoriesPrice = 0, discountType = 'percentage', discountValue = 0, nonDiscountableAccessoriesPrice = 0 } = req.body;
 
-    if (!basePrice) {
-      return res.status(400).json({ error: 'Base price is required' });
-    }
-
+    // validatePricingInputs already requires a finite, non-negative basePrice below — no
+    // separate `!basePrice` pre-check here, since that would also reject a legitimate
+    // basePrice of 0 (falsy but valid), unlike every other entry point into this same
+    // validation (e.g. routes/quotes.js has no such extra guard).
     const validationError = validatePricingInputs(basePrice, accessoriesPrice, discountType, discountValue);
     if (validationError) {
       return res.status(400).json({ error: validationError });

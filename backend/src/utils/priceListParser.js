@@ -141,8 +141,16 @@ async function matchRowsToChanges(rows) {
       }
     }
     if (!match) {
-      const a = accessories.find((a) => a.name.toLowerCase() === row.name.toLowerCase());
-      if (a) { match = a; type = 'accessory'; }
+      // Same ambiguity check as the vehicle matcher above — an accessory name is NOT
+      // unique across models (e.g. "Delivery Pack" exists once per model as separate
+      // catalog rows), so picking the first match by name would silently reprice only
+      // one of them and leave the others stale with no indication anything was skipped.
+      const aMatches = accessories.filter((a) => a.name.toLowerCase() === row.name.toLowerCase());
+      if (aMatches.length === 1) { match = aMatches[0]; type = 'accessory'; }
+      else if (aMatches.length > 1) {
+        unmatchedRows.push({ name: row.name, variant: row.variant, rawPrice: row.rawPrice, reason: 'Meerdere opties met deze naam gevonden — kan niet automatisch matchen' });
+        continue;
+      }
     }
     if (!match) {
       unmatchedRows.push({ name: row.name, variant: row.variant, rawPrice: row.rawPrice, reason: 'Geen overeenkomend voertuig of optie gevonden' });

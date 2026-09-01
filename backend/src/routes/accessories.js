@@ -1,7 +1,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { allAsync, getAsync, runAsync } from '../database/init.js';
-import { requireAuth, requireManager, blockPendingPasswordChange } from '../middleware/auth.js';
+import { requireAuth, requireManager, isManagerRole, blockPendingPasswordChange } from '../middleware/auth.js';
 import { logAudit } from '../utils/auditLog.js';
 
 const router = express.Router();
@@ -39,7 +39,7 @@ function normalizeColorHex(value) {
 // List all active accessories (used by the quote builder)
 router.get('/', async (req, res) => {
   try {
-    const includeInactive = req.query.all === 'true' && ['admin', 'sales_manager'].includes(req.user.role);
+    const includeInactive = req.query.all === 'true' && isManagerRole(req.user.role);
     const rows = await allAsync(
       includeInactive
         ? 'SELECT * FROM accessories ORDER BY category ASC, name ASC'

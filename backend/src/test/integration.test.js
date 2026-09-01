@@ -115,11 +115,16 @@ describe('server integration', () => {
 
     const vehiclesRes = await fetch(`${BASE_URL}/api/vehicles`, { headers: { Cookie: cookie } });
     const vehicles = await vehiclesRes.json();
-    assert.equal(vehicles.length, 6);
+    // 6 real trims (3x E5, 3x Starray EM-i) + the "coming soon" Geely E2 placeholder
+    // (seedGeelyE2IfMissing in database/init.js).
+    assert.equal(vehicles.length, 7);
 
     const accessoriesRes = await fetch(`${BASE_URL}/api/accessories`, { headers: { Cookie: cookie } });
     const accessories = await accessoriesRes.json();
-    assert.equal(accessories.length, 12);
+    // 12 from STANDARD_ACCESSORIES (paint colors + upholstery for both models) + 2
+    // mandatory delivery packs (one per model) + 1 towing hook + 2 charging cables — all
+    // seeded independently of STANDARD_ACCESSORIES, see database/init.js.
+    assert.equal(accessories.length, 17);
   });
 
   test('creating a quote produces correct VAT-inclusive/exclusive totals end-to-end', async () => {
@@ -149,7 +154,11 @@ describe('server integration', () => {
     assert.equal(quoteRes.status, 201);
     const quote = await quoteRes.json();
 
-    assert.equal(quote.totalPrice, e5pro.basePrice, 'incl-VAT total should equal the adviesprijs with no discount/accessories');
+    // The mandatory Delivery Pack (€949 incl. BTW) is injected server-side regardless of
+    // what's submitted (see resolveMandatoryAccessories in routes/quotes.js) — so even an
+    // empty accessories list still adds it on top of the bare adviesprijs.
+    const DELIVERY_PACK_PRICE_INCL_VAT = 949.00;
+    assert.equal(quote.totalPrice, e5pro.basePrice + DELIVERY_PACK_PRICE_INCL_VAT, 'incl-VAT total should equal the adviesprijs plus the mandatory delivery pack, with no discount/other accessories');
     assert.ok(quote.subtotal < quote.totalPrice, 'excl-VAT subtotal should be lower than the incl-VAT total');
     assert.equal(Math.round((quote.subtotal + quote.vatAmount) * 100) / 100, quote.totalPrice);
     assert.equal(quote.createdByName, 'Integration Admin');

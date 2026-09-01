@@ -60,6 +60,8 @@ const ACCESSORY_PREFIXES_FR = [
 const ACCESSORY_NAME_EXACT_FR = {
   'Delivery Pack': 'Pack de livraison',
   'Trekhaak': 'Attache-remorque',
+  'Laadkabel 3 fasig (6m)': 'Câble de recharge triphasé (6m)',
+  'Laadkabel 3 fasig (8m)': 'Câble de recharge triphasé (8m)',
 };
 
 export function translateAccessoryName(name, lang) {
