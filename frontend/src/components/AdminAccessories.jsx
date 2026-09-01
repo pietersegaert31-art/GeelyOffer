@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api, formatPrice } from '../utils/api'
+import { useAuth } from '../context/AuthContext'
 
 function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
   const [form, setForm] = useState(accessory ? {
@@ -49,8 +50,11 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
     }
   }
 
+  // Not disabled while saving, the overlay click would unmount the modal mid-request; a
+  // since-rejected save then calls setError on an already-unmounted component and the
+  // failure is silently swallowed instead of shown.
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="section-title" style={{ marginBottom: 0 }}>{accessory ? 'Optie bewerken' : 'Nieuwe optie'}</h2>
@@ -133,6 +137,13 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
 }
 
 function AdminAccessories() {
+  const { user } = useAuth()
+  // Unlike most other admin tabs, "Opties" is visible to plain 'sales' accounts too (see
+  // AdminPage.jsx) — but only a manager can actually create/edit/delete one, per
+  // accessories.js's requireManager on POST/PUT/DELETE. Without this check a sales rep
+  // could fill out the whole modal and only find out it's rejected after clicking
+  // "Opslaan" (a raw 403 inside the form), instead of never seeing controls they can't use.
+  const canManage = user.role === 'admin' || user.role === 'sales_manager'
   const [accessories, setAccessories] = useState([])
   const [vehicleNames, setVehicleNames] = useState([])
   const [loading, setLoading] = useState(true)
@@ -169,7 +180,9 @@ function AdminAccessories() {
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
         <h3 className="section-title" style={{ fontSize: '1.1rem', marginBottom: 0 }}>Opties &amp; accessoires</h3>
-        <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Nieuwe optie</button>
+        {canManage && (
+          <button className="btn btn-primary" onClick={() => setEditing('new')}>+ Nieuwe optie</button>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -186,7 +199,7 @@ function AdminAccessories() {
                 <th>Prijs</th>
                 <th>Beschikbaar voor</th>
                 <th>Status</th>
-                <th>Acties</th>
+                {canManage && <th>Acties</th>}
               </tr>
             </thead>
             <tbody>
@@ -213,12 +226,14 @@ function AdminAccessories() {
                     {acc.mandatory && <span className="badge declined" style={{ marginLeft: '6px' }}>Verplicht</span>}
                     {!acc.discountable && <span className="badge expiry-soon" style={{ marginLeft: '6px' }}>Geen korting</span>}
                   </td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="btn btn-outline" onClick={() => setEditing(acc)}>Bewerken</button>
-                      <button className="btn btn-danger" onClick={() => handleDelete(acc)}>Verwijderen</button>
-                    </div>
-                  </td>
+                  {canManage && (
+                    <td>
+                      <div className="row-actions">
+                        <button className="btn btn-outline" onClick={() => setEditing(acc)}>Bewerken</button>
+                        <button className="btn btn-danger" onClick={() => handleDelete(acc)}>Verwijderen</button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -226,7 +241,7 @@ function AdminAccessories() {
         </div>
       )}
 
-      {editing && (
+      {canManage && editing && (
         <AccessoryFormModal
           accessory={editing === 'new' ? null : editing}
           vehicleNames={vehicleNames}

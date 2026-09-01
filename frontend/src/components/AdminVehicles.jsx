@@ -6,10 +6,13 @@ const EMPTY_FORM = {
 }
 
 function VehicleFormModal({ vehicle, onClose, onSaved }) {
+  // ?? rather than || below — a legitimate 0 (e.g. basePrice while comingSoon) would
+  // otherwise render blank and then get silently overwritten with null on save, since a
+  // blank field looks empty to the form regardless of why it's blank.
   const [form, setForm] = useState(vehicle ? {
-    name: vehicle.name, model: vehicle.model, basePrice: vehicle.basePrice, fuel: vehicle.fuel,
-    transmission: vehicle.transmission, power: vehicle.power || '', torque: vehicle.torque || '',
-    consumption: vehicle.consumption || '', active: !!vehicle.active, comingSoon: !!vehicle.comingSoon,
+    name: vehicle.name, model: vehicle.model, basePrice: vehicle.basePrice ?? '', fuel: vehicle.fuel,
+    transmission: vehicle.transmission, power: vehicle.power ?? '', torque: vehicle.torque ?? '',
+    consumption: vehicle.consumption ?? '', active: !!vehicle.active, comingSoon: !!vehicle.comingSoon,
     deliveryEstimate: vehicle.deliveryEstimate || '',
   } : EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -22,15 +25,20 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
     setError('')
     setSaving(true)
     try {
+      // Checked against '' (what the field actually looks like when cleared) rather than
+      // truthiness — form.power/torque/consumption/basePrice are strings here, and a
+      // truthy check treats the string '0' as empty-equivalent... no, '0' is truthy; the
+      // real gap was upstream (the ?? '' fix above) but kept consistent here too so a
+      // saved '0' never round-trips through parseInt/parseFloat oddly for an empty string.
       const payload = {
         name: form.name,
         model: form.model,
-        basePrice: form.basePrice ? parseFloat(form.basePrice) : (form.comingSoon ? 0 : undefined),
+        basePrice: form.basePrice !== '' ? parseFloat(form.basePrice) : (form.comingSoon ? 0 : undefined),
         fuel: form.fuel,
         transmission: form.transmission,
-        power: form.power ? parseInt(form.power, 10) : null,
-        torque: form.torque ? parseInt(form.torque, 10) : null,
-        consumption: form.consumption ? parseFloat(form.consumption) : null,
+        power: form.power !== '' ? parseInt(form.power, 10) : null,
+        torque: form.torque !== '' ? parseInt(form.torque, 10) : null,
+        consumption: form.consumption !== '' ? parseFloat(form.consumption) : null,
         active: form.active,
         comingSoon: form.comingSoon,
         deliveryEstimate: form.deliveryEstimate || null,
@@ -48,8 +56,11 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
     }
   }
 
+  // Not disabled while saving, the overlay click would unmount the modal mid-request; a
+  // since-rejected save then calls setError on an already-unmounted component and the
+  // failure is silently swallowed instead of shown.
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="modal-card" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="section-title" style={{ marginBottom: 0 }}>{vehicle ? 'Voertuig bewerken' : 'Nieuw voertuig'}</h2>
@@ -85,6 +96,16 @@ function VehicleFormModal({ vehicle, onClose, onSaved }) {
             <div className="form-group">
               <label>Transmissie{form.comingSoon && ' (optioneel)'}</label>
               <input value={form.transmission} onChange={(e) => set('transmission', e.target.value)} required={!form.comingSoon} placeholder="Automatisch" />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Koppel (Nm)</label>
+              <input type="number" min="0" value={form.torque} onChange={(e) => set('torque', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>Verbruik (kWh of L /100km)</label>
+              <input type="number" min="0" step="0.1" value={form.consumption} onChange={(e) => set('consumption', e.target.value)} />
             </div>
           </div>
           <div className="form-group">

@@ -30,7 +30,13 @@ function ImportPreview({ imp, onApplied }) {
     try {
       setApplying(true)
       setError('')
-      await api.applyImport(imp.id, [...selected])
+      const result = await api.applyImport(imp.id, [...selected])
+      // A partial failure no longer throws (see routes/imports.js) — the request itself
+      // succeeds with a per-row breakdown, so a failed row's price is worth surfacing here
+      // rather than looking like everything went through.
+      if (result.failed > 0) {
+        setError(`${result.applied} van ${result.applied + result.failed} prijswijziging(en) doorgevoerd. Mislukt: ${result.failures.map((f) => `${f.label} (${f.error})`).join(', ')}`)
+      }
       onApplied()
     } catch (err) {
       setError(err.message)

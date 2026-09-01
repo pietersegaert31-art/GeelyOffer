@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { api, formatDate } from '../utils/api'
-import { STATUS_LABELS } from '../utils/constants'
+import { STATUS_LABELS, INVENTORY_STATUS_LABELS } from '../utils/constants'
 
 function AdminPrivacy() {
   const [query, setQuery] = useState('')
@@ -48,10 +48,18 @@ function AdminPrivacy() {
   }
 
   const refresh = async () => {
-    const data = await api.gdprSearch(query.trim())
-    setResults(data)
-    setSelected([])
-    setSelectedInventory([])
+    // Its own try/catch — this used to share the caller's, so a re-search that failed
+    // after a successful (and irreversible) anonymize got mislabeled as "Verwijderen
+    // mislukt", showing a success and a failure message together and implying the erasure
+    // itself needed retrying when it had already gone through.
+    try {
+      const data = await api.gdprSearch(query.trim())
+      setResults(data)
+      setSelected([])
+      setSelectedInventory([])
+    } catch (err) {
+      setError('Herladen van de resultaten mislukt: ' + err.message)
+    }
   }
 
   const handleAnonymize = async () => {
@@ -66,12 +74,13 @@ function AdminPrivacy() {
       setError('')
       await api.gdprAnonymize(selected)
       setMessage(`Persoonsgegevens van ${selected.length} offerte(s) verwijderd.`)
-      await refresh()
     } catch (err) {
       setError('Verwijderen mislukt: ' + err.message)
+      return
     } finally {
       setLoading(false)
     }
+    await refresh()
   }
 
   const handleAnonymizeInventory = async () => {
@@ -86,12 +95,13 @@ function AdminPrivacy() {
       setError('')
       await api.gdprAnonymizeInventory(selectedInventory)
       setMessage(`Reservering van ${selectedInventory.length} voorraadeenhe(i)d(en) gewist.`)
-      await refresh()
     } catch (err) {
       setError('Verwijderen mislukt: ' + err.message)
+      return
     } finally {
       setLoading(false)
     }
+    await refresh()
   }
 
   const hasResults = results && (results.quotes.length > 0 || results.inventoryMatches.length > 0)
@@ -204,7 +214,7 @@ function AdminPrivacy() {
                           </td>
                           <td style={{ fontWeight: 700 }}>{r.vehicleName} {r.vehicleModel}</td>
                           <td>{r.reservedFor}</td>
-                          <td>{STATUS_LABELS[r.status] || r.status}</td>
+                          <td>{INVENTORY_STATUS_LABELS[r.status] || r.status}</td>
                         </tr>
                       ))}
                     </tbody>

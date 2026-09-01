@@ -14,8 +14,13 @@ const ALL_TABS = [
   { id: 'accessories', label: 'Opties', adminOnly: false },
   { id: 'branches', label: 'Vestigingen', adminOnly: true },
   { id: 'users', label: 'Gebruikers', adminOnly: true },
-  { id: 'imports', label: 'Import', adminOnly: false },
-  { id: 'auditlog', label: 'Logboek', adminOnly: false },
+  // Both gated admin-only to match the backend: imports.js and auditLog.js's entire
+  // router (including the read-only GET) is behind requireManager, so a plain 'sales'
+  // account seeing these tabs got nothing but a permanent 403 error banner on click. The
+  // content itself (import/pricing history, and now user account changes in the audit
+  // log) is also management-facing info, not something to open up to every rep instead.
+  { id: 'imports', label: 'Import', adminOnly: true },
+  { id: 'auditlog', label: 'Logboek', adminOnly: true },
   { id: 'privacy', label: 'Privacy', adminOnly: true },
 ]
 
@@ -51,8 +56,8 @@ function AdminPage() {
       {tab === 'accessories' && <AdminAccessories />}
       {tab === 'branches' && isAdmin && <AdminBranches />}
       {tab === 'users' && isAdmin && <AdminUsers />}
-      {tab === 'imports' && <AdminImports />}
-      {tab === 'auditlog' && <AdminAuditLog />}
+      {tab === 'imports' && isAdmin && <AdminImports />}
+      {tab === 'auditlog' && isAdmin && <AdminAuditLog />}
       {tab === 'privacy' && isAdmin && <AdminPrivacy />}
 
       {isAdmin && (

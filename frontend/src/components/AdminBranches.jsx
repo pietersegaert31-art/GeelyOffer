@@ -31,8 +31,11 @@ function BranchFormModal({ branch, onClose, onSaved }) {
     }
   }
 
+  // Not disabled while saving, the overlay click would unmount the modal mid-request; a
+  // since-rejected save then calls setError on an already-unmounted component and the
+  // failure is silently swallowed instead of shown.
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="modal-card" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="section-title" style={{ marginBottom: 0 }}>{branch ? 'Vestiging bewerken' : 'Nieuwe vestiging'}</h2>

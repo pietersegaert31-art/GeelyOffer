@@ -24,8 +24,11 @@ function UserFormModal({ branches, onClose, onSaved }) {
     }
   }
 
+  // Not disabled while saving, the overlay click would unmount the modal mid-request; a
+  // since-rejected save then calls setError on an already-unmounted component and the
+  // failure is silently swallowed instead of shown.
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
       <div className="modal-card" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="section-title" style={{ marginBottom: 0 }}>Nieuwe collega</h2>
@@ -135,21 +138,39 @@ function AdminUsers() {
   useEffect(() => { load() }, [])
 
   const handleToggleActive = async (u) => {
+    // Unlike handleDelete below, this had no confirmation at all — a single click on the
+    // status badge immediately revoked access. Doubly worth confirming when it's the
+    // acting admin's own account: the backend only blocks deactivating the LAST active
+    // admin, so with 2+ admins this would otherwise take effect on the current session
+    // instantly with zero warning.
+    const selfWarning = u.id === currentUser.id ? ' Dit is je EIGEN account.' : ''
+    if (!window.confirm(`${u.name} ${u.active ? 'deactiveren' : 'activeren'}?${selfWarning}`)) return
     try {
       await api.updateUser(u.id, { active: !u.active })
       load()
     } catch (err) {
       alert(err.message)
+      // The <select>/badge is controlled by `u` from the `users` state array, which never
+      // changed here (the request failed) — but the browser's own native widget already
+      // visually jumped to what the person interacted with, and without a re-render
+      // React never gets a chance to reconcile it back to the true value. load() forces
+      // that reconciliation (as well as re-syncing with whatever the server actually has).
+      load()
     }
   }
 
   const handleRoleChange = async (u, role) => {
     if (role === u.role) return
+    if (u.id === currentUser.id && !window.confirm(`Je EIGEN rol wijzigen naar "${ROLE_LABELS[role]}"?`)) {
+      load()
+      return
+    }
     try {
       await api.updateUser(u.id, { role })
       load()
     } catch (err) {
       alert(err.message)
+      load()
     }
   }
 
@@ -160,6 +181,7 @@ function AdminUsers() {
       load()
     } catch (err) {
       alert(err.message)
+      load()
     }
   }
 

@@ -47,7 +47,7 @@ function TradeInForm({ tradeIn, onChange }) {
                 type="number"
                 min="1980"
                 max={new Date().getFullYear() + 1}
-                value={tradeIn.tradeInYear || ''}
+                value={tradeIn.tradeInYear ?? ''}
                 onChange={(e) => set('tradeInYear', e.target.value ? parseInt(e.target.value, 10) : '')}
                 placeholder="2019"
               />
@@ -58,7 +58,7 @@ function TradeInForm({ tradeIn, onChange }) {
                 id="tradeInMileage"
                 type="number"
                 min="0"
-                value={tradeIn.tradeInMileage || ''}
+                value={tradeIn.tradeInMileage ?? ''}
                 onChange={(e) => set('tradeInMileage', e.target.value ? parseInt(e.target.value, 10) : '')}
                 placeholder="85000"
               />
@@ -71,8 +71,8 @@ function TradeInForm({ tradeIn, onChange }) {
               type="number"
               min="0"
               step="50"
-              value={tradeIn.tradeInValue || ''}
-              onChange={(e) => set('tradeInValue', e.target.value ? parseFloat(e.target.value) : 0)}
+              value={tradeIn.tradeInValue ?? ''}
+              onChange={(e) => set('tradeInValue', e.target.value !== '' ? parseFloat(e.target.value) : 0)}
               placeholder="0"
             />
           </div>
