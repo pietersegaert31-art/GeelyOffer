@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api, formatPrice, formatDate } from '../utils/api'
-import { STATUS_LABELS } from '../utils/constants'
+import { STATUS_LABELS, INVENTORY_STATUS_LABELS } from '../utils/constants'
 
 const LIMIT = 50
 
@@ -8,6 +8,7 @@ const ENTITY_TYPE_LABELS = {
   quote: 'Offerte',
   accessory: 'Optie',
   vehicle: 'Voertuig',
+  inventory: 'Voorraad',
 }
 
 const ACTION_LABELS = {
@@ -22,6 +23,22 @@ const ACTION_LABELS = {
   accepted_online: 'Online bevestigd door klant',
 }
 
+// Human-readable field names for gdpr_anonymized's fieldsCleared list (see gdpr.js) — falls
+// back to the raw field name for anything not listed, rather than hiding it.
+const FIELD_LABELS = {
+  customerName: 'naam',
+  customerEmail: 'e-mail',
+  customerPhone: 'telefoon',
+  customerCompany: 'bedrijfsnaam',
+  customerVatNumber: 'BTW-nummer',
+  customerStreet: 'straat',
+  customerPostalCode: 'postcode',
+  customerCity: 'gemeente',
+  notes: 'opmerkingen',
+  acceptedByName: 'naam (online bevestiging)',
+  reservedFor: 'gereserveerd voor',
+}
+
 function fmtDiscount(d) {
   if (!d) return '—'
   return d.type === 'fixed' ? formatPrice(d.value) : `${d.value}%`
@@ -29,6 +46,7 @@ function fmtDiscount(d) {
 
 function describeDetails(entry) {
   const d = entry.details || {}
+  const statusLabels = entry.entityType === 'inventory' ? INVENTORY_STATUS_LABELS : STATUS_LABELS
   switch (entry.action) {
     case 'discount_applied':
     case 'discount_approved':
@@ -37,13 +55,21 @@ function describeDetails(entry) {
     case 'discount_changed':
       return `${fmtDiscount(d.from)} → ${fmtDiscount(d.to)}`
     case 'status_changed':
-      return `${STATUS_LABELS[d.from] || d.from} → ${STATUS_LABELS[d.to] || d.to}`
+      return `${statusLabels[d.from] || d.from} → ${statusLabels[d.to] || d.to}`
     case 'price_changed':
       return `${d.name || ''}: ${formatPrice(d.from)} → ${formatPrice(d.to)}`
     case 'created':
+      // Inventory's 'created' details carry {vehicle, status} (see inventory.js) instead of
+      // the {name, price} shape every other entity type logs — without this branch it fell
+      // through to `d.name`/`d.price`, both undefined, rendering a blank Details cell.
+      if (entry.entityType === 'inventory') {
+        return `${d.vehicle || ''}${d.status ? ` (${statusLabels[d.status] || d.status})` : ''}`
+      }
       return `${d.name || ''}${d.price !== undefined ? ` (${formatPrice(d.price)})` : ''}`
     case 'gdpr_anonymized':
-      return 'Naam, contactgegevens, adres en opmerkingen gewist'
+      return d.fieldsCleared?.length
+        ? `Gewist: ${d.fieldsCleared.map((f) => FIELD_LABELS[f] || f).join(', ')}`
+        : 'Persoonsgegevens gewist'
     case 'accepted_online':
       return `Bevestigd door: ${d.acceptedByName || '—'}`
     default:
@@ -90,6 +116,7 @@ function AdminAuditLog() {
           <option value="quote">Offertes</option>
           <option value="accessory">Opties</option>
           <option value="vehicle">Voertuigen</option>
+          <option value="inventory">Voorraad</option>
         </select>
       </div>
 

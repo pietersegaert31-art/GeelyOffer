@@ -1,14 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { api, formatDate } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
+import { INVENTORY_STATUSES as STATUSES, INVENTORY_STATUS_LABELS as STATUS_LABELS } from '../utils/constants'
 
-const STATUSES = ['in_stock', 'incoming', 'reserved', 'sold']
-const STATUS_LABELS = {
-  in_stock: 'Op voorraad',
-  incoming: 'Onderweg',
-  reserved: 'Gereserveerd',
-  sold: 'Verkocht',
-}
 // Only these five badge tones exist in index.css (mirrors STATUS_LABELS' quote badges).
 const STATUS_BADGE_CLASS = {
   in_stock: 'sent',

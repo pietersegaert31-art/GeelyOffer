@@ -7,6 +7,18 @@ export const STATUS_LABELS = {
   declined: 'Geweigerd',
 }
 
+// Inventory units use a different status vocabulary than quotes above — shared between
+// InventoryPage.jsx and AdminAuditLog.jsx so the two can't drift apart (e.g. a status
+// renamed in one place silently going stale in the other).
+export const INVENTORY_STATUSES = ['in_stock', 'incoming', 'reserved', 'sold']
+
+export const INVENTORY_STATUS_LABELS = {
+  in_stock: 'Op voorraad',
+  incoming: 'Onderweg',
+  reserved: 'Gereserveerd',
+  sold: 'Verkocht',
+}
+
 export const ROLES = ['admin', 'sales_manager', 'sales']
 
 export const ROLE_LABELS = {
