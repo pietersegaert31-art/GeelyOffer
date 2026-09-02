@@ -59,6 +59,7 @@ const ACCESSORY_PREFIXES_FR = [
 // Accessory names with no recognizable prefix pattern to swap — translated by exact match.
 const ACCESSORY_NAME_EXACT_FR = {
   'Delivery Pack': 'Pack de livraison',
+  'Standaardkleur: Wit': 'Couleur standard : Blanc',
   'Trekhaak': 'Attache-remorque',
   'Laadkabel 3 fasig (6m)': 'Câble de recharge triphasé (6m)',
   'Laadkabel 3 fasig (8m)': 'Câble de recharge triphasé (8m)',

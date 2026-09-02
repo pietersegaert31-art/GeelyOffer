@@ -122,9 +122,10 @@ describe('server integration', () => {
     const accessoriesRes = await fetch(`${BASE_URL}/api/accessories`, { headers: { Cookie: cookie } });
     const accessories = await accessoriesRes.json();
     // 12 from STANDARD_ACCESSORIES (paint colors + upholstery for both models) + 2
-    // mandatory delivery packs (one per model) + 1 towing hook + 2 charging cables — all
-    // seeded independently of STANDARD_ACCESSORIES, see database/init.js.
-    assert.equal(accessories.length, 17);
+    // mandatory delivery packs (one per model) + 1 towing hook + 2 charging cables + 1
+    // free standard white paint color (all models) — all seeded independently of
+    // STANDARD_ACCESSORIES, see database/init.js.
+    assert.equal(accessories.length, 18);
   });
 
   test('creating a quote produces correct VAT-inclusive/exclusive totals end-to-end', async () => {

@@ -4,7 +4,7 @@ import {
   QUOTE_STATUSES, STATUS_LABELS, DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
   DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS,
-  SINGLE_SELECT_CATEGORIES,
+  SINGLE_SELECT_CATEGORIES, STANDARD_PAINT_ACCESSORY_ID,
 } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import CustomerForm from './CustomerForm'
@@ -165,6 +165,23 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
       return missing.length ? [...prev, ...missing] : prev
     })
   }, [vehicle, accessoriesCatalog])
+
+  // Same reasoning as QuoteBuilder.jsx: every quote carries an exterior-colour line, so
+  // the free "Standaardkleur: Wit" (€0) stands in whenever the exterior category is empty
+  // — a quote that predates this feature, or the rep clearing a paid colour. Picking a
+  // paid colour swaps it out via the single-select branch in the selector's onSelect
+  // handler. The backend applies the same fallback on save (applyDefaultPaintColor).
+  useEffect(() => {
+    if (!vehicle || accessoriesCatalog.length === 0) return
+    const standardColor = accessoriesCatalog.find(
+      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID &&
+        (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name))
+    )
+    if (!standardColor) return
+    setSelectedAccessories((prev) =>
+      prev.some((a) => a.category === 'exterior') ? prev : [...prev, standardColor]
+    )
+  }, [vehicle, accessoriesCatalog, selectedAccessories])
 
   const handleSave = async () => {
     if (!isCustomerInfoComplete(customerInfo)) {
