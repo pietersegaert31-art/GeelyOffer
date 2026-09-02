@@ -177,6 +177,39 @@ function seedChargingCablesIfMissing(database) {
   });
 }
 
+// Runs on every boot (same reasoning as seedTowingHookIfMissing above) so it also reaches
+// databases seeded before it existed. This is the free standard paint colour every car
+// has unless the customer upgrades to a paid metallic — €0, applicable to every model
+// (empty vehicleModels). It is deliberately NOT mandatory: 'exterior' is single-select,
+// so flagging it mandatory would make mergeMandatoryAccessories (routes/quotes.js) reject
+// any quote that also carries a paid colour. Instead the quote routes fall back to it only
+// when no exterior colour was chosen (applyDefaultPaintColor), and the quote builder and
+// editor pre-select it in the live preview. discountable = 1 to match the paid paint rows
+// (moot at €0, but it keeps the "(accessoire)" non-discountable tag off the PDF line).
+function seedStandardPaintColorIfMissing(database) {
+  const id = 'paint-standard-white';
+  database.get('SELECT id FROM accessories WHERE id = ?', [id], (err, row) => {
+    if (err) {
+      console.error(`Error checking for ${id} seed row:`, err);
+      return;
+    }
+    if (row) return;
+
+    database.run(
+      `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable, colorHex)
+       VALUES (?, ?, 0, 'exterior', '[]', 1, 0, 1, ?)`,
+      [id, 'Standaardkleur: Wit', '#FFFFFF'],
+      (insertErr) => {
+        if (insertErr) {
+          console.error(`Failed to seed ${id}:`, insertErr.message);
+          return;
+        }
+        console.log('✓ Added standard white paint colour (all models)');
+      }
+    );
+  });
+}
+
 function seedBranchesIfEmpty(database) {
   database.get('SELECT COUNT(*) AS count FROM branches', (err, row) => {
     if (err) {
@@ -791,6 +824,7 @@ export function initializeDatabase() {
     seedDeliveryPackIfMissing(database);
     seedTowingHookIfMissing(database);
     seedChargingCablesIfMissing(database);
+    seedStandardPaintColorIfMissing(database);
     backfillAccessoryDiscountableIfMissing(database);
     backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);

@@ -61,6 +61,14 @@ export const DISCOUNT_APPROVAL_BADGE_CLASS = {
 // arbitrary one of the two via .find().
 export const SINGLE_SELECT_CATEGORIES = ['exterior', 'interior']
 
+// The free €0 standard paint colour ("Standaardkleur: Wit") seeded in
+// backend/src/database/init.js (seedStandardPaintColorIfMissing) and applicable to every
+// model. QuoteBuilder and QuoteEditor pre-select it whenever a quote has no exterior
+// colour, so every quote carries a colour line and the stock-match has something to key
+// off; picking a paid metallic replaces it. The backend applies the same fallback on save
+// (applyDefaultPaintColor in routes/quotes.js), so it stays authoritative there too.
+export const STANDARD_PAINT_ACCESSORY_ID = 'paint-standard-white'
+
 // Language the customer-facing PDF and e-mail are generated in — see
 // backend/src/i18n/translate.js. The app UI itself stays Dutch regardless of this choice.
 export const QUOTE_LANGUAGES = ['nl', 'fr']

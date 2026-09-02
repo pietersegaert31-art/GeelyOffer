@@ -190,6 +190,30 @@ function mergeMandatoryAccessories(resolvedAccessories, mandatoryAccessories) {
   return merged;
 }
 
+// The free standard paint colour ('Standaardkleur: Wit', €0, seeded in database/init.js)
+// stands in whenever a quote has no exterior colour of its own — a customer who doesn't
+// upgrade to a paid metallic still gets a colour line on the quote and PDF, and the
+// stock-match in QuoteBuilder has an id to key off. It can't be a `mandatory` accessory:
+// 'exterior' is single-select, so mergeMandatoryAccessories above would reject any quote
+// that also carries a paid colour. So it's applied here as a fallback only — never when
+// an exterior colour is already present. Mirrors QuoteBuilder/QuoteEditor, which
+// pre-select it in the live preview.
+const STANDARD_PAINT_ACCESSORY_ID = 'paint-standard-white';
+
+async function applyDefaultPaintColor(resolvedAccessories, vehicleName) {
+  if (resolvedAccessories.some((a) => a.category === 'exterior')) return resolvedAccessories;
+  const row = await getAsync('SELECT * FROM accessories WHERE id = ? AND active = 1', [STANDARD_PAINT_ACCESSORY_ID]);
+  if (!row) return resolvedAccessories;
+  const applicableModels = JSON.parse(row.vehicleModels || '[]');
+  if (applicableModels.length > 0 && vehicleName && !applicableModels.includes(vehicleName)) {
+    return resolvedAccessories;
+  }
+  return [
+    ...resolvedAccessories,
+    { id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable },
+  ];
+}
+
 function csvEscape(value) {
   let str = value === null || value === undefined ? '' : String(value);
   // Excel/Sheets/LibreOffice treat a cell starting with =, +, -, @, or a tab/CR as a
@@ -454,7 +478,10 @@ router.post('/', async (req, res) => {
     const basePrice = vehicle.basePrice;
 
     const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
-    const resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories);
+    const resolvedAccessories = await applyDefaultPaintColor(
+      mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories),
+      vehicle.name
+    );
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
     const nonDiscountableAccessoriesTotal = resolvedAccessories
       .filter((acc) => !acc.discountable)
@@ -785,7 +812,10 @@ router.put('/:id', async (req, res) => {
 
     let resolvedAccessories = null;
     if (accessories) {
-      resolvedAccessories = mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle?.name), mandatoryAccessories);
+      resolvedAccessories = await applyDefaultPaintColor(
+        mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle?.name), mandatoryAccessories),
+        vehicle?.name
+      );
     }
     const accessoriesTotal = resolvedAccessories
       ? resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0)

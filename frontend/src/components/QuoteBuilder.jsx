@@ -3,7 +3,7 @@ import { api, formatPrice, exclVat, formatDate } from '../utils/api'
 import {
   DISCOUNT_TYPES, DISCOUNT_TYPE_LABELS,
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
-  SINGLE_SELECT_CATEGORIES,
+  SINGLE_SELECT_CATEGORIES, STANDARD_PAINT_ACCESSORY_ID,
 } from '../utils/constants'
 import { useAuth } from '../context/AuthContext'
 import VehicleSelector from './VehicleSelector'
@@ -202,6 +202,25 @@ function QuoteBuilder({ onQuoteCreated }) {
       return missing.length ? [...prev, ...missing] : prev
     })
   }, [selectedModel, accessories])
+
+  // Every quote carries an exterior-colour line: the free "Standaardkleur: Wit" (€0)
+  // stands in whenever the customer doesn't upgrade to a paid metallic. Re-added here
+  // whenever the exterior category is empty — a fresh model pick, or the rep clearing a
+  // paid colour — while picking a paid colour swaps it out via the single-select branch
+  // in the selector's onSelect handler below. The backend applies the same fallback on
+  // save (applyDefaultPaintColor in routes/quotes.js); this just keeps the live preview
+  // and the stock-match honest.
+  useEffect(() => {
+    if (!selectedModel || accessories.length === 0) return
+    const standardColor = accessories.find(
+      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID &&
+        (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel))
+    )
+    if (!standardColor) return
+    setSelectedAccessories((prev) =>
+      prev.some((a) => a.category === 'exterior') ? prev : [...prev, standardColor]
+    )
+  }, [selectedModel, accessories, selectedAccessories])
 
   // Guards against a slower, stale calculatePricing() response overwriting a newer one —
   // e.g. rapid discount edits can fire two overlapping requests, and without this the one
