@@ -388,32 +388,31 @@ function QuoteBuilder({ onQuoteCreated }) {
     <div className="page-shell">
       {error && <div className="error">{error}</div>}
 
-      <div className="mode-toggle" role="tablist" aria-label="Soort offerte">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={!isShowroom}
-          className={`nav-pill ${!isShowroom ? 'active' : ''}`}
-          onClick={() => switchMode(false)}
-        >
-          Klantofferte
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={isShowroom}
-          className={`nav-pill ${isShowroom ? 'active' : ''}`}
-          onClick={() => switchMode(true)}
-        >
-          Showroomaanbieding
-        </button>
-      </div>
-
-      {isShowroom && (
-        <div className="customer-history-notice" style={{ marginBottom: '16px' }}>
-          <strong>Showroomaanbieding</strong> — een prijskaart voor naast de wagen, zonder klantgegevens en zonder offertenummer. Ze verdwijnt automatisch uit de lijst na 2 uur.
+      <div className="card offer-type-card">
+        <div className="section-kicker">Wat wil je maken?</div>
+        <div className="offer-type-toggle" role="tablist" aria-label="Type offerte">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isShowroom}
+            className={`offer-type-option ${!isShowroom ? 'selected' : ''}`}
+            onClick={() => switchMode(false)}
+          >
+            <span className="offer-type-title">Klantofferte</span>
+            <span className="offer-type-desc">Volledige offerte met klantgegevens en offertenummer.</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isShowroom}
+            className={`offer-type-option ${isShowroom ? 'selected' : ''}`}
+            onClick={() => switchMode(true)}
+          >
+            <span className="offer-type-title">Showroomaanbieding</span>
+            <span className="offer-type-desc">Prijskaart voor naast de wagen. Geen klantgegevens, geen offertenummer, verdwijnt na 2 uur.</span>
+          </button>
         </div>
-      )}
+      </div>
 
       <div className={`stepper ${isShowroom ? 'stepper--3' : ''}`} aria-label="Quote steps">
         {stepLabels.map((label, index) => (

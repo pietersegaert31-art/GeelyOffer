@@ -27,11 +27,15 @@ function needsFollowupNow(quote) {
 
 // A showroomaanbieding is purged server-side ~2h after creation (see routes/quotes.js).
 // Show the rep how long this one still has rather than the normal day-based expiry.
+// Keyed off expiresAt (a proper ISO/UTC string set to createdAt + 2h at creation) — not
+// the raw SQLite createdAt string, which browsers parse as local time and would skew the
+// countdown by the timezone offset.
 function showroomTimeLeft(quote) {
-  const minutesLeft = Math.round((new Date(quote.createdAt).getTime() + 2 * 60 * 60 * 1000 - Date.now()) / 60000)
-  if (minutesLeft <= 0) return 'Verdwijnt zo'
+  if (!quote.expiresAt) return 'Verdwijnt binnenkort'
+  const minutesLeft = Math.round((new Date(quote.expiresAt).getTime() - Date.now()) / 60000)
+  if (minutesLeft <= 1) return 'Verdwijnt zo'
   if (minutesLeft < 60) return `Nog ${minutesLeft} min`
-  return 'Nog ~2 u'
+  return `Nog ${Math.round(minutesLeft / 60)} u`
 }
 
 function QuoteList() {
