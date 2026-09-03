@@ -9,9 +9,19 @@ function AccessoriesSelector({ accessories, selectedAccessories, onSelectAccesso
   // AdminAccessories.jsx) — it has to be checked by length, the same way InventoryPage.jsx
   // already does it correctly. Without this, a universal accessory was never selectable
   // here for any vehicle.
-  const availableAccessories = accessories.filter(
+  const applicableAccessories = accessories.filter(
     acc => !acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleModel)
   )
+  // Collapse accessories that share a name and both apply here (e.g. a mandatory "Delivery
+  // Pack" that has drifted to also being "all models" alongside the model-specific one),
+  // preferring the model-specific row — otherwise it renders as two identical locked rows
+  // and gets counted twice. Mirrors resolveMandatoryAccessories in routes/quotes.js.
+  const availableAccessories = []
+  for (const acc of applicableAccessories) {
+    const i = availableAccessories.findIndex(a => a.name === acc.name && a.category === acc.category)
+    if (i === -1) availableAccessories.push(acc)
+    else if (acc.vehicleModels?.length && !availableAccessories[i].vehicleModels?.length) availableAccessories[i] = acc
+  }
   const categories = [...new Set(availableAccessories.map(a => a.category))]
 
   return (

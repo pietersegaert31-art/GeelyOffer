@@ -172,7 +172,7 @@ async function resolveAccessories(items, vehicleName) {
 // the request was crafted by hand to omit it.
 async function resolveMandatoryAccessories(vehicleName) {
   const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
-  return rows
+  const applicable = rows
     // An empty vehicleModels array means "applies to every model" everywhere else in this
     // file (see resolveAccessories above) and in the admin UI ("Alle modellen" in
     // AdminAccessories.jsx) — without the length check, a mandatory fee meant to apply
@@ -180,8 +180,29 @@ async function resolveMandatoryAccessories(vehicleName) {
     .filter((row) => {
       const applicableModels = JSON.parse(row.vehicleModels || '[]');
       return applicableModels.length === 0 || applicableModels.includes(vehicleName);
-    })
-    .map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable }));
+    });
+
+  // The delivery pack is configured as one mandatory row per model ('delivery-pack-e5',
+  // 'delivery-pack-emi'), all sharing the name "Delivery Pack". If one of those rows ever
+  // gets its scope widened to "all models" — e.g. an admin clears every model checkbox in
+  // Beheer → Opties, which the API stores as an empty (= universal) list — then BOTH the
+  // universal row and the model-specific row match that model here, and the same fee gets
+  // attached twice to every quote for it, re-created on every save. Collapsing same-named
+  // mandatory rows to one (preferring the model-specific row so the kept line is the most
+  // precise) makes that duplication impossible regardless of how the catalog is scoped.
+  const byName = new Map();
+  for (const row of applicable) {
+    const current = byName.get(row.name);
+    if (!current) {
+      byName.set(row.name, row);
+      continue;
+    }
+    const rowIsSpecific = JSON.parse(row.vehicleModels || '[]').length > 0;
+    const currentIsSpecific = JSON.parse(current.vehicleModels || '[]').length > 0;
+    if (rowIsSpecific && !currentIsSpecific) byName.set(row.name, row);
+  }
+
+  return [...byName.values()].map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable }));
 }
 
 // Merges resolved client accessories with the vehicle's mandatory ones, the client's

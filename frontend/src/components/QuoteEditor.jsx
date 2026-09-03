@@ -90,12 +90,22 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
         // array), silently dropping a universal accessory (and its price) from the quote
         // the next time it's opened and saved. Checked by length instead, same as
         // AccessoriesSelector.jsx and InventoryPage.jsx.
-        setSelectedAccessories(
-          catalog.filter((acc) =>
-            (!acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleData.name)) &&
-            quote.items?.some((item) => item.itemName === acc.name)
-          )
+        // If the catalog somehow holds two accessories with the same name that both apply
+        // to this vehicle (e.g. a "Delivery Pack" that has drifted to also being "all
+        // models" alongside the model-specific one), keep only one per name — preferring
+        // the model-specific row — so the quote doesn't load, show and re-save that line
+        // twice. Mirrors resolveMandatoryAccessories in routes/quotes.js.
+        const matched = catalog.filter((acc) =>
+          (!acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleData.name)) &&
+          quote.items?.some((item) => item.itemName === acc.name)
         )
+        const dedupedByName = []
+        for (const acc of matched) {
+          const i = dedupedByName.findIndex((a) => a.name === acc.name)
+          if (i === -1) dedupedByName.push(acc)
+          else if (acc.vehicleModels?.length && !dedupedByName[i].vehicleModels?.length) dedupedByName[i] = acc
+        }
+        setSelectedAccessories(dedupedByName)
         const loadedDiscountType = quote.discountType || 'percentage'
         const loadedDiscountValue = (quote.discountType === 'fixed' ? quote.discountEuro : quote.discountPercentage) || 0
         setDiscountType(loadedDiscountType)
@@ -158,10 +168,19 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
     // Same "empty vehicleModels = every model" gap as AccessoriesSelector.jsx above —
     // without the length check, a universal mandatory fee would never show in this
     // preview for any model.
-    const mandatory = accessoriesCatalog.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name)))
+    const applicable = accessoriesCatalog.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name)))
+    // Collapse same-named mandatory fees to one (preferring the model-specific row) —
+    // mirrors resolveMandatoryAccessories in routes/quotes.js, so a "Delivery Pack" that
+    // has drifted to also being "all models" doesn't show on the quote twice.
+    const mandatory = []
+    for (const a of applicable) {
+      const dupeIndex = mandatory.findIndex((m) => m.name === a.name)
+      if (dupeIndex === -1) mandatory.push(a)
+      else if (a.vehicleModels?.length && !mandatory[dupeIndex].vehicleModels?.length) mandatory[dupeIndex] = a
+    }
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
-      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
+      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id || p.name === m.name))
       return missing.length ? [...prev, ...missing] : prev
     })
   }, [vehicle, accessoriesCatalog])

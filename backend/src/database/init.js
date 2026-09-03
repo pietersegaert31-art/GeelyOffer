@@ -286,6 +286,20 @@ function backfillQuoteItemDiscountableIfMissing(database) {
   database.run(`UPDATE quote_items SET discountable = 0 WHERE itemName = 'Delivery Pack'`);
 }
 
+// The two "Delivery Pack" rows are meant to stay scoped one-per-model (see
+// seedDeliveryPackIfMissing). If one gets widened to "all models" — the API stores an
+// empty vehicleModels list as universal, and clearing every model checkbox in Beheer →
+// Opties produces exactly that — then it AND the model-specific row both match the same
+// model, and the fee lands on every quote for it twice, re-created on each save.
+// resolveMandatoryAccessories() in routes/quotes.js now collapses same-named mandatory
+// rows so the duplicate line can't appear, but this also repairs the underlying scoping
+// on boot. Deliberately narrow: only touches a row whose scope is currently the empty
+// (universal) list, never one an admin has pointed at a real set of models.
+function restoreDeliveryPackScopingIfWidened(database) {
+  database.run(`UPDATE accessories SET vehicleModels = '["Geely E5"]' WHERE id = 'delivery-pack-e5' AND vehicleModels = '[]'`);
+  database.run(`UPDATE accessories SET vehicleModels = '["Starray EM-i"]' WHERE id = 'delivery-pack-emi' AND vehicleModels = '[]'`);
+}
+
 // Quotes that reached 'sent' before the sentAt column existed would otherwise never
 // surface for a follow-up reminder (the needsFollowup filter requires sentAt IS NOT
 // NULL) until someone happens to edit them again. updatedAt is the closest available
@@ -831,6 +845,7 @@ export function initializeDatabase() {
     seedTowingHookIfMissing(database);
     seedChargingCablesIfMissing(database);
     seedStandardPaintColorIfMissing(database);
+    restoreDeliveryPackScopingIfWidened(database);
     backfillAccessoryDiscountableIfMissing(database);
     backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);

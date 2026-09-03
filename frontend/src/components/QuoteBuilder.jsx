@@ -198,10 +198,20 @@ function QuoteBuilder({ onQuoteCreated }) {
     // would never show up in this live preview for any model (the backend now applies it
     // correctly regardless — see resolveMandatoryAccessories — this was purely a preview
     // gap, but one that made the quote look cheaper than what actually gets billed).
-    const mandatory = accessories.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel)))
+    const applicable = accessories.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel)))
+    // Collapse same-named mandatory fees (e.g. a "Delivery Pack" that ends up both
+    // model-specific and "all models") to one, preferring the model-specific row — mirrors
+    // resolveMandatoryAccessories in routes/quotes.js so the preview total matches the
+    // bill instead of showing the fee twice.
+    const mandatory = []
+    for (const a of applicable) {
+      const dupeIndex = mandatory.findIndex((m) => m.name === a.name)
+      if (dupeIndex === -1) mandatory.push(a)
+      else if (a.vehicleModels?.length && !mandatory[dupeIndex].vehicleModels?.length) mandatory[dupeIndex] = a
+    }
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
-      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id))
+      const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id || p.name === m.name))
       return missing.length ? [...prev, ...missing] : prev
     })
   }, [selectedModel, accessories])

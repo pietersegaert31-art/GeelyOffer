@@ -169,6 +169,52 @@ describe('server integration', () => {
     assert.equal(deleteRes.status, 204);
   });
 
+  test('a same-named mandatory fee scoped to "all models" does not double up with the model-specific one', async () => {
+    const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    });
+    const cookie = extractCookie(loginRes);
+
+    // Simulate the drift that caused the recurring "Delivery Pack twice on the Starray"
+    // bug: a second mandatory "Delivery Pack" row scoped to every model (empty
+    // vehicleModels), alongside the seeded model-specific delivery-pack-emi.
+    const accRes = await fetch(`${BASE_URL}/api/accessories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'Delivery Pack', price: 949, category: 'verplicht', vehicleModels: [], mandatory: true, discountable: false }),
+    });
+    assert.equal(accRes.status, 201);
+    const rogueAccessory = await accRes.json();
+
+    const vehiclesRes = await fetch(`${BASE_URL}/api/vehicles`, { headers: { Cookie: cookie } });
+    const starray = (await vehiclesRes.json()).find((v) => v.name === 'Starray EM-i');
+    assert.ok(starray, 'a Starray EM-i trim should exist in the seed data');
+
+    const quoteRes = await fetch(`${BASE_URL}/api/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        customerName: 'Starray Dup Test',
+        selectedVehicleId: starray.id,
+        configuration: { vehicleName: starray.name, vehicleModel: starray.model },
+        accessories: [],
+        discountPercentage: 0,
+      }),
+    });
+    assert.equal(quoteRes.status, 201);
+    const quote = await quoteRes.json();
+
+    // Exactly one €949 Delivery Pack, not two.
+    const deliveryLines = quote.items.filter((i) => i.name === 'Delivery Pack');
+    assert.equal(deliveryLines.length, 1, 'the Delivery Pack must appear exactly once');
+    assert.equal(quote.totalPrice, starray.basePrice + 949, 'total should include the delivery pack exactly once');
+
+    await fetch(`${BASE_URL}/api/quotes/${quote.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
+    await fetch(`${BASE_URL}/api/accessories/${rogueAccessory.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
+  });
+
   test('a showroom offer carries no customer or offer number and is blocked from customer flows', async () => {
     const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
