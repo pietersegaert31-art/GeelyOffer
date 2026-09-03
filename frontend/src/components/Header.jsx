@@ -3,7 +3,7 @@ import geelyLogo from '../assets/geely-logo.png'
 import { useAuth } from '../context/AuthContext'
 import ChangePasswordModal from './ChangePasswordModal'
 
-function Header({ currentPage, onPageChange }) {
+function Header({ currentPage, onPageChange, onHome }) {
   const { user, logout } = useAuth()
   const [showPasswordModal, setShowPasswordModal] = useState(false)
 
@@ -11,7 +11,15 @@ function Header({ currentPage, onPageChange }) {
     <header className="page-header">
       <div className="container header-inner">
         <div className="brand-wrap">
-          <img src={geelyLogo} alt="Geely" className="brand-logo" />
+          <button
+            type="button"
+            className="brand-logo-btn"
+            onClick={onHome}
+            title="Terug naar start"
+            aria-label="Terug naar start"
+          >
+            <img src={geelyLogo} alt="Geely" className="brand-logo" />
+          </button>
           <span className="brand-divider" />
           <span className="brand-subtitle">Sales &amp; Quote Hub</span>
         </div>

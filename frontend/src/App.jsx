@@ -16,6 +16,9 @@ function App() {
   const { user, loading, setUser } = useAuth()
   const [currentPage, setCurrentPage] = useState('builder') // 'builder' | 'quotes' | 'reports' | 'admin'
   const [quotesRefreshKey, setQuotesRefreshKey] = useState(0)
+  // Bumped to force a fresh QuoteBuilder (back to step 1, nothing selected) — used by the
+  // "click the logo to start over" action in the header.
+  const [builderResetKey, setBuilderResetKey] = useState(0)
 
   const resetToken = new URLSearchParams(window.location.search).get('resetToken')
   if (resetToken) {
@@ -48,6 +51,12 @@ function App() {
     setCurrentPage('quotes')
   }
 
+  // Clicking the Geely logo returns to a clean configurator (the app's starting screen).
+  const handleHome = () => {
+    setBuilderResetKey((key) => key + 1)
+    setCurrentPage('builder')
+  }
+
   const canSeeReports = user.role === 'admin' || user.role === 'sales_manager'
   const canSeeAdmin = user.role === 'admin' || user.role === 'sales_manager'
   let page = currentPage
@@ -56,10 +65,10 @@ function App() {
 
   return (
     <div className="app">
-      <Header currentPage={page} onPageChange={setCurrentPage} />
+      <Header currentPage={page} onPageChange={setCurrentPage} onHome={handleHome} />
       <main className="container">
         {page === 'builder' && (
-          <QuoteBuilder onQuoteCreated={handleQuoteCreated} />
+          <QuoteBuilder key={builderResetKey} onQuoteCreated={handleQuoteCreated} />
         )}
         {page === 'quotes' && (
           <QuoteList key={quotesRefreshKey} />
