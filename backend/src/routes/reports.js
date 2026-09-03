@@ -1,6 +1,7 @@
 import express from 'express';
 import { allAsync } from '../database/init.js';
 import { requireAuth, requireManager, blockPendingPasswordChange } from '../middleware/auth.js';
+import { purgeExpiredShowroomQuotes } from './quotes.js';
 
 const router = express.Router();
 router.use(requireAuth, blockPendingPasswordChange, requireManager);
@@ -24,7 +25,8 @@ function monthRangeBounds() {
 
 async function getMonthlyTrend(branchId) {
   const { previousStart, currentStart, nextStart } = monthRangeBounds();
-  const conditions = ['createdAt >= ?', 'createdAt < ?'];
+  // Showroom sheets are ephemeral floor material, never part of the sales funnel.
+  const conditions = ['isShowroom = 0', 'createdAt >= ?', 'createdAt < ?'];
   const params = [previousStart, nextStart];
   if (branchId) {
     conditions.push('branchId = ?');
@@ -60,8 +62,10 @@ async function getMonthlyTrend(branchId) {
 // needs without digging through the raw quote list.
 router.get('/summary', async (req, res) => {
   try {
+    await purgeExpiredShowroomQuotes();
     const { from, to, branchId } = req.query;
-    const conditions = [];
+    // Showroom sheets are ephemeral floor material, never part of the sales funnel.
+    const conditions = ['isShowroom = 0'];
     const params = [];
     if (from) {
       conditions.push('createdAt >= ?');

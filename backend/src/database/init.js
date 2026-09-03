@@ -566,6 +566,12 @@ export function initializeDatabase() {
     // internally/in URLs but meaningless to read out over the phone or spot in a folder of
     // downloaded PDFs). Backfilled for pre-existing quotes below, oldest first from 0.
     addColumnIfMissing(database, 'quotes', 'sequenceNumber', 'INTEGER');
+    // A "showroomaanbieding" — a throwaway spec/price sheet a rep prints to stand next to
+    // a car on the floor. It carries no customer data, never gets a sequenceNumber
+    // (formatQuoteNumber shows "Showroom" instead), can't be sent/edited/duplicated, and
+    // is purged from the list and the database ~2 hours after creation
+    // (purgeExpiredShowroomQuotes in routes/quotes.js). Existing quotes default to 0.
+    addColumnIfMissing(database, 'quotes', 'isShowroom', 'BOOLEAN DEFAULT 0');
 
     // Quote Items (accessories/options) table
     database.run(`

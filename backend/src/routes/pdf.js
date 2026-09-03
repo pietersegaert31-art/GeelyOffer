@@ -381,12 +381,17 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   const lang = resolveLang(quote.language);
   const T = PDF[lang];
   const vehicleLabel = `${vehicle.name} ${vehicle.model}`;
+  // A showroomaanbieding drops everything customer-specific: no customer card, no offer
+  // number, no "valid until" date, a different title/kicker. The vehicle, pricing, specs,
+  // equipment and warranty pages are all kept — that's the point of the sheet.
+  const isShowroom = !!quote.isShowroom;
+  const docTitle = isShowroom ? T.showroomTitle : T.quoteTitle;
 
   // ===================== PAGE 1 — Cover =====================
   const coverLogoWidth = 110;
   doc.image(LOGO_PATH, PAGE_LEFT, 40, { width: coverLogoWidth });
 
-  const kickerLabel = `${T.kickerPrefix} · ${new Intl.DateTimeFormat(LOCALE[lang], { month: 'long', year: 'numeric' }).format(new Date(quote.createdAt)).toUpperCase()}`;
+  const kickerLabel = `${isShowroom ? T.showroomKickerPrefix : T.kickerPrefix} · ${new Intl.DateTimeFormat(LOCALE[lang], { month: 'long', year: 'numeric' }).format(new Date(quote.createdAt)).toUpperCase()}`;
   doc.fillColor('#999').fontSize(9).font('Inter')
     .text(kickerLabel, 300, 40 + (coverLogoWidth * LOGO_ASPECT - 9) / 2, { width: 250, align: 'right', characterSpacing: 1 });
 
@@ -425,7 +430,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   cursorY += 40;
 
   doc.fillColor('#666').fontSize(11).font('Inter')
-    .text(`${T.personalQuoteFor} ${quote.customerName}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
+    .text(isShowroom ? T.showroomSubtitle : `${T.personalQuoteFor} ${quote.customerName}`, PAGE_LEFT, cursorY, { width: CONTENT_WIDTH, align: 'center' });
   cursorY += 32;
 
   const specs = parseSpecifications(vehicle.specifications);
@@ -444,42 +449,55 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   // ===================== PAGE 2 — Offer details & pricing =====================
   doc.addPage();
   const smallLogoWidth = 70;
-  drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
+  drawContinuationHeader(doc, docTitle, vehicleLabel, smallLogoWidth);
 
   // Offer + customer info cards — height is computed from actual content instead of a
   // fixed number, since a company customer now carries a name, VAT number, and full
   // address, and a fixed height would clip that (or leave awkward extra space for a
   // private customer with fewer lines).
   const cardY = 108;
-  const cardWidth = 245;
+  // A showroom sheet has no customer card, so the info card spans the full width instead
+  // of sharing the row.
+  const cardWidth = isShowroom ? CONTENT_WIDTH : 245;
 
   const rightLines = [];
-  if (quote.customerType === 'bedrijf' && quote.customerCompany) rightLines.push(quote.customerCompany);
-  if (quote.customerType === 'bedrijf' && quote.customerVatNumber) rightLines.push(`${T.vatNumberLabel}: ${quote.customerVatNumber}`);
-  if (quote.customerStreet) rightLines.push(quote.customerStreet);
-  const cityLine = [quote.customerPostalCode, quote.customerCity].filter(Boolean).join(' ');
-  if (cityLine) rightLines.push(cityLine);
-  if (quote.customerEmail) rightLines.push(quote.customerEmail);
-  if (quote.customerPhone) rightLines.push(quote.customerPhone);
+  if (!isShowroom) {
+    if (quote.customerType === 'bedrijf' && quote.customerCompany) rightLines.push(quote.customerCompany);
+    if (quote.customerType === 'bedrijf' && quote.customerVatNumber) rightLines.push(`${T.vatNumberLabel}: ${quote.customerVatNumber}`);
+    if (quote.customerStreet) rightLines.push(quote.customerStreet);
+    const cityLine = [quote.customerPostalCode, quote.customerCity].filter(Boolean).join(' ');
+    if (cityLine) rightLines.push(cityLine);
+    if (quote.customerEmail) rightLines.push(quote.customerEmail);
+    if (quote.customerPhone) rightLines.push(quote.customerPhone);
+  }
 
   const salespersonLineCount = quote.createdByName
     ? 1 + (quote.createdByEmail ? 1 : 0) + (quote.createdByPhone ? 1 : 0)
     : 0;
-  const leftLineCount = 1 + 3 + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0) + salespersonLineCount; // aanbieder, + offertenr/datum/geldig-tot, + levertijd, + vestiging naam/adres, + verkoper naam/e-mail/telefoon
-  const cardHeight = Math.max(34 + leftLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
+  // Non-showroom: aanbieder + (offertenr, datum, geldig-tot) + levertijd + vestiging(2) + verkoper.
+  // Showroom drops the offer number and "geldig tot", keeping just aanbieder + datum.
+  const infoLineCount = 1 + (isShowroom ? 1 : 3) + (vehicle.deliveryEstimate ? 1 : 0) + (quote.branchName ? 2 : 0) + salespersonLineCount;
+  const cardHeight = Math.max(34 + infoLineCount * 16, 34 + 16 + rightLines.length * 16) + 8;
 
   doc.lineWidth(1);
   doc.roundedRect(PAGE_LEFT, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
-  doc.roundedRect(305, cardY, cardWidth, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
+  if (!isShowroom) {
+    doc.roundedRect(305, cardY, 245, cardHeight, 6).fillAndStroke('#F6F7F9', '#E5E7EB');
+  }
 
   let cy = cardY + 16;
   doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.quoteInfoHeader, 56, cy, { characterSpacing: 1 });
   cy += 18;
   doc.fillColor('#000').fontSize(9).font('Inter');
   doc.text(`${SELLER_COMPANY.name} · ${T.vatNumberLabel} ${SELLER_COMPANY.vatNumber}`, 56, cy); cy += 16;
-  doc.text(`${T.quoteNumberLabel}: ${formatQuoteNumber(quote)}`, 56, cy); cy += 16;
-  doc.text(`${T.dateLabel}: ${formatDate(quote.createdAt, lang)}`, 56, cy); cy += 16;
-  doc.text(`${T.validUntilLabel}: ${formatDate(quote.expiresAt, lang)}`, 56, cy);
+  if (!isShowroom) {
+    doc.text(`${T.quoteNumberLabel}: ${formatQuoteNumber(quote)}`, 56, cy); cy += 16;
+  }
+  doc.text(`${T.dateLabel}: ${formatDate(quote.createdAt, lang)}`, 56, cy);
+  if (!isShowroom) {
+    cy += 16;
+    doc.text(`${T.validUntilLabel}: ${formatDate(quote.expiresAt, lang)}`, 56, cy);
+  }
   if (vehicle.deliveryEstimate) {
     cy += 16;
     doc.text(`${T.deliveryTimeLabel}: ${vehicle.deliveryEstimate}`, 56, cy);
@@ -503,13 +521,15 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     }
   }
 
-  let cy2 = cardY + 16;
-  doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.customerInfoHeader, 321, cy2, { characterSpacing: 1 });
-  cy2 += 18;
-  doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(quote.customerName, 321, cy2);
-  cy2 += 16;
-  doc.font('Inter');
-  rightLines.forEach((line) => { doc.text(line, 321, cy2); cy2 += 16; });
+  if (!isShowroom) {
+    let cy2 = cardY + 16;
+    doc.fillColor('#1F4E78').fontSize(9).font('Inter-Bold').text(T.customerInfoHeader, 321, cy2, { characterSpacing: 1 });
+    cy2 += 18;
+    doc.fillColor('#000').fontSize(9).font('Inter-Bold').text(quote.customerName, 321, cy2);
+    cy2 += 16;
+    doc.font('Inter');
+    rightLines.forEach((line) => { doc.text(line, 321, cy2); cy2 += 16; });
+  }
 
   let yPos = cardY + cardHeight + 18;
 
@@ -553,7 +573,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     // with a fresh header and a repeated column bar so the continuation reads cleanly.
     if (yPos + rowHeight > pageBottomForTable) {
       doc.addPage();
-      drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
+      drawContinuationHeader(doc, docTitle, vehicleLabel, smallLogoWidth);
       yPos = 108;
       drawTableHeaderBar(yPos);
       yPos += 24;
@@ -582,7 +602,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     + (hasTradeIn ? 13 : 0) + (hasTradeIn ? 118 : 76) + (hasTradeIn ? 12 : 0);
   if (yPos + priceLadderHeight > pageBottomForTable) {
     doc.addPage();
-    drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
+    drawContinuationHeader(doc, docTitle, vehicleLabel, smallLogoWidth);
     yPos = 108;
   }
 
@@ -684,7 +704,7 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
     const pageBottomForNotes = doc.page.height - doc.page.margins.bottom;
     if (yPos + notesLabelHeight + notesHeight + 10 > pageBottomForNotes) {
       doc.addPage();
-      drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
+      drawContinuationHeader(doc, docTitle, vehicleLabel, smallLogoWidth);
       yPos = 108;
     }
 
@@ -701,12 +721,12 @@ function renderQuotePdf(doc, { quote, vehicle, items }) {
   const pageBottomForFooter = doc.page.height - doc.page.margins.bottom;
   if (yPos + footerHeight > pageBottomForFooter) {
     doc.addPage();
-    drawContinuationHeader(doc, T.quoteTitle, vehicleLabel, smallLogoWidth);
+    drawContinuationHeader(doc, docTitle, vehicleLabel, smallLogoWidth);
     yPos = 108;
   }
   doc.fontSize(8).fillColor('#666');
   doc.text(T.footerTagline, PAGE_LEFT, yPos, { width: CONTENT_WIDTH, align: 'center' });
-  doc.text(T.footerValidity, PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
+  doc.text(isShowroom ? T.showroomFooterValidity : T.footerValidity, PAGE_LEFT, yPos + 12, { width: CONTENT_WIDTH, align: 'center' });
 
   // ===================== Standard equipment (one page, two columns) =====================
   const equipment = getStandardEquipment(vehicle.name, vehicle.model, lang);
@@ -808,7 +828,10 @@ router.get('/:quoteId', requireAuth, blockPendingPasswordChange, async (req, res
     const { quote, vehicle, items } = await loadQuoteForPdf(req.params.quoteId);
 
     const doc = new PDFDocument({ bufferPages: true, margin: 40 });
-    const filename = `${PDF[resolveLang(quote.language)].filenamePrefix}${formatQuoteNumber(quote)}_${quote.customerName.replace(/\s+/g, '_')}.pdf`;
+    const T = PDF[resolveLang(quote.language)];
+    const filename = quote.isShowroom
+      ? `${T.showroomTitle.replace(/\s+/g, '_')}_${`${vehicle.name} ${vehicle.model}`.replace(/\s+/g, '_')}.pdf`
+      : `${T.filenamePrefix}${formatQuoteNumber(quote)}_${quote.customerName.replace(/\s+/g, '_')}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

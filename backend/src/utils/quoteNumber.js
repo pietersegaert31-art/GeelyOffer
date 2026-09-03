@@ -6,6 +6,11 @@ const PAD_WIDTH = 4;
 // Falls back to a fragment of the quote's own id for the (expected to be rare/impossible
 // post-migration) case of a quote with no sequenceNumber, rather than printing "OFF-null".
 export function formatQuoteNumber(quote) {
+  // A showroomaanbieding deliberately has no offer number — it's an ephemeral floor
+  // sheet, not a tracked quote. Show a plain type marker instead of "OFF-…".
+  if (quote.isShowroom) {
+    return 'Showroom';
+  }
   if (Number.isInteger(quote.sequenceNumber)) {
     return `OFF-${String(quote.sequenceNumber).padStart(PAD_WIDTH, '0')}`;
   }

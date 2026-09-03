@@ -20,6 +20,23 @@ async function nextSequenceNumber() {
   return row.next;
 }
 
+// A showroomaanbieding lives ~2 hours, then vanishes — from the list and from the
+// database, so it never lingers in exports, reports, or as a stale PDF link. There's no
+// scheduler in this app (same "keep it simple" reasoning as nextSequenceNumber above), so
+// instead this runs opportunistically at the top of the read paths that would otherwise
+// surface an expired one (the list, the CSV export, the reports queries). SQLite stores
+// createdAt as a UTC 'YYYY-MM-DD HH:MM:SS' string, which datetime() compares correctly.
+export async function purgeExpiredShowroomQuotes() {
+  await runAsync(
+    `DELETE FROM quote_items WHERE quoteId IN (
+       SELECT id FROM quotes WHERE isShowroom = 1 AND datetime(createdAt) <= datetime('now', '-2 hours')
+     )`
+  );
+  await runAsync(
+    `DELETE FROM quotes WHERE isShowroom = 1 AND datetime(createdAt) <= datetime('now', '-2 hours')`
+  );
+}
+
 const QUOTE_LANGUAGES = ['nl', 'fr'];
 
 const router = express.Router();
@@ -232,6 +249,7 @@ function csvEscape(value) {
 // Get all quotes (search, status filter, pagination)
 router.get('/', async (req, res) => {
   try {
+    await purgeExpiredShowroomQuotes();
     const { search, status, expiringSoon, needsFollowup } = req.query;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
@@ -262,6 +280,9 @@ router.get('/', async (req, res) => {
       conditions.push("status = 'sent'", 'sentAt IS NOT NULL', 'sentAt <= ?');
       params.push(cutoff);
     }
+    // Belt-and-suspenders alongside purgeExpiredShowroomQuotes() above: even if the purge
+    // were skipped or raced, an expired showroom sheet must never show in the list.
+    conditions.push("(isShowroom = 0 OR datetime(createdAt) > datetime('now', '-2 hours'))");
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const totalRow = await getAsync(`SELECT COUNT(*) AS count FROM quotes ${whereClause}`, params);
@@ -285,7 +306,10 @@ router.get('/', async (req, res) => {
 // Export all quotes as CSV
 router.get('/export.csv', async (req, res) => {
   try {
-    const quotes = await allAsync('SELECT * FROM quotes ORDER BY createdAt DESC');
+    await purgeExpiredShowroomQuotes();
+    // Showroom sheets are ephemeral floor material, not part of the offer record — the
+    // CSV is a business export, so they're left out entirely regardless of age.
+    const quotes = await allAsync('SELECT * FROM quotes WHERE isShowroom = 0 ORDER BY createdAt DESC');
     const header = ['Offertenummer', 'Klant', 'Type', 'E-mail', 'Telefoon', 'Adres', 'Bedrijf', 'BTW-nummer', 'Model', 'Status', 'Korting', 'Totaal excl. BTW', 'BTW', 'Totaal incl. BTW', 'Verkoper', 'Datum'];
     const lines = [header.map(csvEscape).join(',')];
 
@@ -425,16 +449,13 @@ router.get('/:id', async (req, res) => {
 // Create new quote
 router.post('/', async (req, res) => {
   try {
+    // A showroomaanbieding is a throwaway floor sheet: no customer, no trade-in, no offer
+    // number, self-deletes after ~2h. Everything customer-related is forced to a neutral
+    // placeholder here so the rest of this handler (and the schema's NOT NULL customerName)
+    // needs no special-casing.
+    const isShowroom = req.body.isShowroom === true;
+
     const {
-      customerName,
-      customerEmail,
-      customerPhone,
-      customerCompany,
-      customerType = 'particulier',
-      customerVatNumber,
-      customerStreet,
-      customerPostalCode,
-      customerCity,
       selectedVehicleId,
       configuration,
       discountType = 'percentage',
@@ -442,13 +463,20 @@ router.post('/', async (req, res) => {
       accessories = [],
       notes,
       language = 'nl',
-      tradeInEnabled = false,
-      tradeInMake,
-      tradeInModel,
-      tradeInYear,
-      tradeInMileage,
-      tradeInValue = 0,
     } = req.body;
+
+    const customerName = isShowroom ? 'Showroom' : req.body.customerName;
+    const customerEmail = isShowroom ? undefined : req.body.customerEmail;
+    const customerPhone = isShowroom ? undefined : req.body.customerPhone;
+    const customerCompany = isShowroom ? undefined : req.body.customerCompany;
+    const customerType = isShowroom ? 'particulier' : (req.body.customerType || 'particulier');
+    const customerVatNumber = isShowroom ? undefined : req.body.customerVatNumber;
+    const customerStreet = isShowroom ? undefined : req.body.customerStreet;
+    const customerPostalCode = isShowroom ? undefined : req.body.customerPostalCode;
+    const customerCity = isShowroom ? undefined : req.body.customerCity;
+    const tradeInEnabled = isShowroom ? false : (req.body.tradeInEnabled ?? false);
+    const { tradeInMake, tradeInModel, tradeInYear, tradeInMileage } = req.body;
+    const tradeInValue = isShowroom ? 0 : (req.body.tradeInValue ?? 0);
 
     if (!customerName || !selectedVehicleId) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -496,17 +524,26 @@ router.post('/', async (req, res) => {
     // accessories like a towing hook) are priced in full but excluded from the discount
     // base, see calculatePricing's docs.
     const pricing = calculatePricing(basePrice, accessoriesTotal, discountType, discountValue, nonDiscountableAccessoriesTotal);
-    const discountApprovalStatus = computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
+    // A showroom sheet's discount never needs sign-off — there's no customer to send it to
+    // or accept it, and it self-deletes within 2h. It just shows an action price on the card.
+    const discountApprovalStatus = isShowroom
+      ? 'not_required'
+      : computeDiscountApprovalStatus(discountType, discountValue, req.user.role);
     const branch = await resolveActorBranch(req.user);
-    const sequenceNumber = await nextSequenceNumber();
+    // A showroomaanbieding gets no offer number (sequenceNumber NULL — formatQuoteNumber
+    // shows "Showroom") and a short 2-hour lifetime instead of the usual 30 days; the
+    // purge sweep keys off createdAt, but expiresAt is set consistently anyway.
+    const sequenceNumber = isShowroom ? null : await nextSequenceNumber();
+    const expiresAt = new Date(Date.now() + (isShowroom ? 2 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000)).toISOString();
 
     // Insert quote
     await runAsync(
-      `INSERT INTO quotes (id, sequenceNumber, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, createdByPhone, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO quotes (id, sequenceNumber, isShowroom, customerName, customerEmail, customerPhone, customerCompany, customerType, customerVatNumber, customerStreet, customerPostalCode, customerCity, selectedVehicleId, configuration, basePrice, accessories, discountType, discountPercentage, discountEuro, discountAmount, discountApprovalStatus, subtotal, vatAmount, totalPrice, notes, language, expiresAt, createdBy, createdByName, createdByEmail, createdByPhone, branchId, branchName, branchAddress, tradeInEnabled, tradeInMake, tradeInModel, tradeInYear, tradeInMileage, tradeInValue)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         sequenceNumber,
+        isShowroom ? 1 : 0,
         customerName,
         customerEmail || null,
         customerPhone || null,
@@ -530,7 +567,7 @@ router.post('/', async (req, res) => {
         pricing.total,
         notes || null,
         language,
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days expiry
+        expiresAt,
         req.user.id,
         req.user.name,
         req.user.email,
@@ -584,6 +621,9 @@ router.post('/:id/duplicate', async (req, res) => {
     const source = await getAsync('SELECT * FROM quotes WHERE id = ?', [req.params.id]);
     if (!source) {
       return res.status(404).json({ error: 'Quote not found' });
+    }
+    if (source.isShowroom) {
+      return res.status(400).json({ error: 'Een showroomaanbieding kan niet gedupliceerd worden' });
     }
     const sourceItems = await allAsync('SELECT * FROM quote_items WHERE quoteId = ?', [req.params.id]);
 
@@ -658,6 +698,9 @@ router.post('/:id/duplicate', async (req, res) => {
 router.post('/:id/send-email', async (req, res) => {
   try {
     const { quote, vehicle, items } = await loadQuoteForPdf(req.params.id);
+    if (quote.isShowroom) {
+      return res.status(400).json({ error: 'Een showroomaanbieding kan niet gemaild worden' });
+    }
     if (!quote.customerEmail) {
       return res.status(400).json({ error: 'Deze offerte heeft geen klant-e-mailadres' });
     }
@@ -762,6 +805,9 @@ router.put('/:id', async (req, res) => {
     const quote = await getAsync('SELECT * FROM quotes WHERE id = ?', [quoteId]);
     if (!quote) {
       return res.status(404).json({ error: 'Quote not found' });
+    }
+    if (quote.isShowroom) {
+      return res.status(400).json({ error: 'Een showroomaanbieding kan niet bewerkt worden — verwijder ze en maak een nieuwe' });
     }
     if (!canModifyQuote(quote, req.user)) {
       return res.status(403).json({ error: 'Je kan enkel je eigen offertes bewerken' });

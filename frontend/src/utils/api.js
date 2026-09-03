@@ -289,6 +289,10 @@ export function formatPrice(price) {
 // Mirrors backend/src/utils/quoteNumber.js's formatQuoteNumber exactly, so the number
 // shown in the quotes list is always the same one printed on that quote's PDF/filename.
 export function formatQuoteNumber(quote) {
+  // A showroomaanbieding deliberately has no offer number (see backend quoteNumber.js).
+  if (quote.isShowroom) {
+    return 'Showroom'
+  }
   if (Number.isInteger(quote.sequenceNumber)) {
     return `OFF-${String(quote.sequenceNumber).padStart(4, '0')}`
   }

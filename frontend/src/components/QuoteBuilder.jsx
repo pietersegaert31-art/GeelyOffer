@@ -123,6 +123,9 @@ function QuoteBuilder({ onQuoteCreated }) {
     tradeInMileage: '',
     tradeInValue: 0,
   })
+  // "Showroomaanbieding" mode: a throwaway floor sheet with no customer step and no offer
+  // number, auto-deleted server-side ~2h after creation. Switching mode restarts the flow.
+  const [isShowroom, setIsShowroom] = useState(false)
   useEffect(() => {
     loadData()
   }, [])
@@ -316,6 +319,46 @@ function QuoteBuilder({ onQuoteCreated }) {
     }
   }
 
+  const handleCreateShowroom = async () => {
+    try {
+      setLoading(true)
+      await api.createQuote({
+        isShowroom: true,
+        selectedVehicleId: selectedVariant.id,
+        configuration: {
+          vehicleName: selectedVariant.name,
+          vehicleModel: selectedVariant.model,
+        },
+        accessories: selectedAccessories,
+        discountType,
+        discountValue,
+      })
+      setError('')
+      alert('Showroomaanbieding aangemaakt. Ze verdwijnt automatisch na 2 uur.')
+      onQuoteCreated()
+    } catch (err) {
+      setError('Kon showroomaanbieding niet aanmaken: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Switching between a normal quote and a showroom sheet restarts the flow — the two
+  // diverge from step 1 (different step count, no customer step for showroom).
+  const switchMode = (showroom) => {
+    if (showroom === isShowroom) return
+    setIsShowroom(showroom)
+    setStep(1)
+    setSelectedModel(null)
+    setSelectedVariant(null)
+    setSelectedAccessories([])
+    setDiscountType('percentage')
+    setDiscountValue(0)
+    setQuantity(1)
+    setPricing(null)
+    setError('')
+  }
+
   if (loading && vehicles.length === 0) {
     return <div className="loading"><div className="spinner" /></div>
   }
@@ -337,17 +380,43 @@ function QuoteBuilder({ onQuoteCreated }) {
   const selectedInteriorAccessory = selectedAccessories.find((acc) => acc.category === 'interior')
   const stockMatchDescription = selectedInteriorAccessory ? 'uitvoering, kleur en interieur' : 'uitvoering en kleur'
 
+  const stepLabels = isShowroom
+    ? ['Model', 'Uitvoering', 'Opties']
+    : ['Model', 'Uitvoering', 'Opties', 'Klantgegevens']
+
   return (
     <div className="page-shell">
       {error && <div className="error">{error}</div>}
 
-      <div className="stepper" aria-label="Quote steps">
-        {[
-          'Model',
-          'Uitvoering',
-          'Opties',
-          'Klantgegevens'
-        ].map((label, index) => (
+      <div className="mode-toggle" role="tablist" aria-label="Soort offerte">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!isShowroom}
+          className={`nav-pill ${!isShowroom ? 'active' : ''}`}
+          onClick={() => switchMode(false)}
+        >
+          Klantofferte
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={isShowroom}
+          className={`nav-pill ${isShowroom ? 'active' : ''}`}
+          onClick={() => switchMode(true)}
+        >
+          Showroomaanbieding
+        </button>
+      </div>
+
+      {isShowroom && (
+        <div className="customer-history-notice" style={{ marginBottom: '16px' }}>
+          <strong>Showroomaanbieding</strong> — een prijskaart voor naast de wagen, zonder klantgegevens en zonder offertenummer. Ze verdwijnt automatisch uit de lijst na 2 uur.
+        </div>
+      )}
+
+      <div className={`stepper ${isShowroom ? 'stepper--3' : ''}`} aria-label="Quote steps">
+        {stepLabels.map((label, index) => (
           <div key={label} className={`step-item ${step === index + 1 ? 'active' : ''}`}>
             <div className="step-number">{index + 1}</div>
             <div className="step-name">{label}</div>
@@ -560,9 +629,19 @@ function QuoteBuilder({ onQuoteCreated }) {
                   <button className="btn btn-outline" onClick={() => setStep(2)}>
                     ← Terug naar uitvoering
                   </button>
-                  <button className="btn btn-primary" onClick={() => setStep(4)} disabled={!selectedVariant || !pricing}>
-                    Ga verder →
-                  </button>
+                  {isShowroom ? (
+                    <button
+                      className="btn btn-success"
+                      onClick={handleCreateShowroom}
+                      disabled={loading || !selectedVariant || !pricing}
+                    >
+                      {loading ? 'Aanmaken...' : 'Showroomaanbieding aanmaken'}
+                    </button>
+                  ) : (
+                    <button className="btn btn-primary" onClick={() => setStep(4)} disabled={!selectedVariant || !pricing}>
+                      Ga verder →
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

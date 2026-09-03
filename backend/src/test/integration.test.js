@@ -169,6 +169,57 @@ describe('server integration', () => {
     assert.equal(deleteRes.status, 204);
   });
 
+  test('a showroom offer carries no customer or offer number and is blocked from customer flows', async () => {
+    const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    });
+    const cookie = extractCookie(loginRes);
+
+    // No customerName sent at all — a normal quote would 400 here.
+    const createRes = await fetch(`${BASE_URL}/api/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        isShowroom: true,
+        selectedVehicleId: 'geely-e5-pro',
+        configuration: { vehicleName: 'Geely E5', vehicleModel: 'PRO' },
+        accessories: [],
+      }),
+    });
+    assert.equal(createRes.status, 201);
+    const showroom = await createRes.json();
+    assert.equal(showroom.isShowroom, 1);
+    assert.equal(showroom.sequenceNumber, null, 'a showroom offer gets no offer number');
+    assert.equal(showroom.customerEmail, null);
+
+    // It shows in the list (created just now, well within the 2h window)...
+    const listRes = await fetch(`${BASE_URL}/api/quotes?limit=100`, { headers: { Cookie: cookie } });
+    const list = await listRes.json();
+    assert.ok(list.quotes.some((q) => q.id === showroom.id), 'showroom offer should be in the list within 2h');
+
+    // ...but can't be mailed, duplicated, or edited.
+    const mailRes = await fetch(`${BASE_URL}/api/quotes/${showroom.id}/send-email`, { method: 'POST', headers: { Cookie: cookie } });
+    assert.equal(mailRes.status, 400);
+    const dupRes = await fetch(`${BASE_URL}/api/quotes/${showroom.id}/duplicate`, { method: 'POST', headers: { Cookie: cookie } });
+    assert.equal(dupRes.status, 400);
+    const editRes = await fetch(`${BASE_URL}/api/quotes/${showroom.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ notes: 'x' }),
+    });
+    assert.equal(editRes.status, 400);
+
+    // It is left out of the CSV export entirely.
+    const csvRes = await fetch(`${BASE_URL}/api/quotes/export.csv`, { headers: { Cookie: cookie } });
+    const csv = await csvRes.text();
+    assert.ok(!csv.includes('Showroom'), 'showroom offer should not appear in the CSV export');
+
+    const deleteRes = await fetch(`${BASE_URL}/api/quotes/${showroom.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
+    assert.equal(deleteRes.status, 204);
+  });
+
   test('a sales-role user is blocked from admin-only routes', async () => {
     const adminLogin = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',

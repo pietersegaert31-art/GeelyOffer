@@ -25,6 +25,15 @@ function needsFollowupNow(quote) {
   return daysSinceSent >= FOLLOWUP_REMINDER_DAYS
 }
 
+// A showroomaanbieding is purged server-side ~2h after creation (see routes/quotes.js).
+// Show the rep how long this one still has rather than the normal day-based expiry.
+function showroomTimeLeft(quote) {
+  const minutesLeft = Math.round((new Date(quote.createdAt).getTime() + 2 * 60 * 60 * 1000 - Date.now()) / 60000)
+  if (minutesLeft <= 0) return 'Verdwijnt zo'
+  if (minutesLeft < 60) return `Nog ${minutesLeft} min`
+  return 'Nog ~2 u'
+}
+
 function QuoteList() {
   const { user } = useAuth()
   const canManageDiscounts = user.role === 'admin' || user.role === 'sales_manager'
@@ -264,9 +273,15 @@ function QuoteList() {
                     </td>
                     <td style={{ fontSize: '0.8rem', color: '#697687', whiteSpace: 'nowrap' }}>{formatQuoteNumber(quote)}</td>
                     <td>
-                      <div style={{ fontWeight: 700 }}>{quote.customerName}</div>
-                      {quote.customerEmail && (
-                        <div style={{ fontSize: '0.78rem', color: '#697687', marginTop: '4px' }}>{quote.customerEmail}</div>
+                      {quote.isShowroom ? (
+                        <span className="badge draft">Showroomaanbieding</span>
+                      ) : (
+                        <>
+                          <div style={{ fontWeight: 700 }}>{quote.customerName}</div>
+                          {quote.customerEmail && (
+                            <div style={{ fontSize: '0.78rem', color: '#697687', marginTop: '4px' }}>{quote.customerEmail}</div>
+                          )}
+                        </>
                       )}
                     </td>
                     <td>{quote.configuration?.vehicleName} {quote.configuration?.vehicleModel}</td>
@@ -295,6 +310,7 @@ function QuoteList() {
                     <td>{formatDate(quote.createdAt)}</td>
                     <td>
                       {(() => {
+                        if (quote.isShowroom) return <span className="badge expiry-soon">{showroomTimeLeft(quote)}</span>
                         const info = expiryInfo(quote)
                         if (!info) return <span style={{ color: 'var(--muted-soft)' }}>—</span>
                         if (info.tone === 'normal') return <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{info.label}</span>
@@ -306,13 +322,17 @@ function QuoteList() {
                         <button className="btn btn-primary" onClick={() => handleDownloadPDF(quote.id)} disabled={busyIds.includes(quote.id)}>
                           PDF
                         </button>
-                        <button className="btn btn-outline" onClick={() => setEditingQuoteId(quote.id)}>
-                          Bewerken
-                        </button>
-                        <button className="btn btn-outline" onClick={() => handleDuplicate(quote.id)} disabled={busyIds.includes(quote.id)}>
-                          Dupliceren
-                        </button>
-                        {quote.customerEmail && (
+                        {!quote.isShowroom && (
+                          <>
+                            <button className="btn btn-outline" onClick={() => setEditingQuoteId(quote.id)}>
+                              Bewerken
+                            </button>
+                            <button className="btn btn-outline" onClick={() => handleDuplicate(quote.id)} disabled={busyIds.includes(quote.id)}>
+                              Dupliceren
+                            </button>
+                          </>
+                        )}
+                        {!quote.isShowroom && quote.customerEmail && (
                           <button className="btn btn-outline" onClick={() => handleSendEmail(quote.id)} disabled={busyIds.includes(quote.id)}>
                             Mail
                           </button>
