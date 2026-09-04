@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { STANDARD_ACCESSORIES } from '../data/accessoriesSeed.js';
+import { calculatePricing } from '../utils/pricing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DATABASE_PATH
@@ -298,6 +299,51 @@ function backfillQuoteItemDiscountableIfMissing(database) {
 function restoreDeliveryPackScopingIfWidened(database) {
   database.run(`UPDATE accessories SET vehicleModels = '["Geely E5"]' WHERE id = 'delivery-pack-e5' AND vehicleModels = '[]'`);
   database.run(`UPDATE accessories SET vehicleModels = '["Starray EM-i"]' WHERE id = 'delivery-pack-emi' AND vehicleModels = '[]'`);
+}
+
+// Last-line-of-defence self-heal for the recurring "Delivery Pack appears twice on the
+// Starray" report: whatever the trigger, this collapses any quote_items rows that share a
+// name within one quote down to a single line, then re-derives that quote's stored
+// accessories total and price ladder from what's left (same maths as routes/quotes.js).
+// Runs on every boot. A correctly-built quote never has same-named line items, so this is
+// a no-op in the normal case; it only ever touches a quote that is already wrong.
+function dedupeDoubledQuoteItems(database) {
+  database.all(
+    `SELECT id, basePrice, discountType, discountPercentage, discountEuro FROM quotes
+      WHERE id IN (SELECT quoteId FROM quote_items GROUP BY quoteId, itemName HAVING COUNT(*) > 1)`,
+    (err, quotes) => {
+      if (err) { console.error('Error scanning for doubled quote items:', err.message); return; }
+      (quotes || []).forEach((q) => {
+        database.all(
+          'SELECT id, itemName, unitPrice, quantity, discountable FROM quote_items WHERE quoteId = ? ORDER BY rowid',
+          [q.id],
+          (itemsErr, items) => {
+            if (itemsErr) { console.error(`Error loading items for quote ${q.id}:`, itemsErr.message); return; }
+            const seen = new Set();
+            const keep = [];
+            const dropIds = [];
+            for (const it of items) {
+              if (seen.has(it.itemName)) dropIds.push(it.id);
+              else { seen.add(it.itemName); keep.push(it); }
+            }
+            if (dropIds.length === 0) return;
+            dropIds.forEach((dropId) => database.run('DELETE FROM quote_items WHERE id = ?', [dropId]));
+
+            const accessoriesTotal = keep.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
+            const nonDiscountable = keep.filter((it) => !it.discountable).reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);
+            const discountType = q.discountType || 'percentage';
+            const discountValue = discountType === 'fixed' ? (q.discountEuro || 0) : (q.discountPercentage || 0);
+            const pricing = calculatePricing(q.basePrice, accessoriesTotal, discountType, discountValue, nonDiscountable);
+            database.run(
+              'UPDATE quotes SET accessories = ?, discountAmount = ?, subtotal = ?, vatAmount = ?, totalPrice = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
+              [accessoriesTotal, pricing.discountAmount, pricing.subtotal, pricing.vat, pricing.total, q.id]
+            );
+            console.log(`✓ Removed ${dropIds.length} duplicate line item(s) from quote ${q.id} and re-priced it`);
+          }
+        );
+      });
+    }
+  );
 }
 
 // Quotes that reached 'sent' before the sentAt column existed would otherwise never
@@ -854,6 +900,7 @@ export function initializeDatabase() {
     seedChargingCablesIfMissing(database);
     seedStandardPaintColorIfMissing(database);
     restoreDeliveryPackScopingIfWidened(database);
+    dedupeDoubledQuoteItems(database);
     backfillAccessoryDiscountableIfMissing(database);
     backfillQuoteItemDiscountableIfMissing(database);
     backfillSentAtIfMissing(database);
