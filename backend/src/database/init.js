@@ -82,31 +82,46 @@ function seedGeelyE2IfMissing(database) {
 // €784.30 excl. BTW by the business — stored incl. 21% BTW (€949.00) like every other
 // price in this app, so it adds cleanly to basePrice/accessoriesTotal without special-
 // casing the VAT math anywhere else.
+//
+// There is ONE Delivery Pack row, scoped to every model it applies to. It used to be
+// split into delivery-pack-e5 / delivery-pack-emi (one per model, both named "Delivery
+// Pack"), which showed up in Beheer → Opties as a confusing "duplicate" that got deleted
+// and re-seeded over and over. This function also migrates that old split to the single
+// row. Self-contained (only touches delivery-pack* ids, which nothing else seeds) so it
+// can't race the other seeders.
 function seedDeliveryPackIfMissing(database) {
   const DELIVERY_PACK_PRICE_INCL_VAT = 949.00;
-  const packs = [
-    { id: 'delivery-pack-e5', vehicleModel: 'Geely E5' },
-    { id: 'delivery-pack-emi', vehicleModel: 'Starray EM-i' },
-  ];
+  const MODELS_JSON = JSON.stringify(['Geely E5', 'Starray EM-i']);
 
-  packs.forEach(({ id, vehicleModel }) => {
-    database.get('SELECT id FROM accessories WHERE id = ?', [id], (err, row) => {
-      if (err) {
-        console.error(`Error checking for ${id} seed row:`, err);
+  database.get("SELECT id FROM accessories WHERE id = 'delivery-pack'", (err, canonical) => {
+    if (err) {
+      console.error('Error checking for delivery-pack seed row:', err.message);
+      return;
+    }
+    if (canonical) {
+      // Canonical row already present — clear out any leftover per-model rows.
+      database.run("DELETE FROM accessories WHERE id IN ('delivery-pack-e5', 'delivery-pack-emi')");
+      return;
+    }
+    // Reuse the price from an old per-model row if one exists (an admin may have edited it),
+    // otherwise the default.
+    database.get("SELECT price FROM accessories WHERE id IN ('delivery-pack-e5', 'delivery-pack-emi') ORDER BY id LIMIT 1", (priceErr, oldRow) => {
+      if (priceErr) {
+        console.error('Error reading old Delivery Pack price:', priceErr.message);
         return;
       }
-      if (row) return;
-
+      const price = oldRow ? oldRow.price : DELIVERY_PACK_PRICE_INCL_VAT;
       database.run(
-        `INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable)
-         VALUES (?, ?, ?, ?, ?, 1, 1, 0)`,
-        [id, 'Delivery Pack', DELIVERY_PACK_PRICE_INCL_VAT, 'verplicht', JSON.stringify([vehicleModel])],
+        `INSERT INTO accessories (id, name, price, category, vehicleModels, vehicleTrims, active, mandatory, discountable)
+         VALUES ('delivery-pack', 'Delivery Pack', ?, 'verplicht', ?, '[]', 1, 1, 0)`,
+        [price, MODELS_JSON],
         (insertErr) => {
           if (insertErr) {
-            console.error(`Failed to seed ${id}:`, insertErr.message);
+            console.error('Failed to seed delivery-pack:', insertErr.message);
             return;
           }
-          console.log(`✓ Added mandatory Delivery Pack for ${vehicleModel}`);
+          database.run("DELETE FROM accessories WHERE id IN ('delivery-pack-e5', 'delivery-pack-emi')");
+          console.log(oldRow ? '✓ Consolidated the two Delivery Pack rows into one' : '✓ Added mandatory Delivery Pack');
         }
       );
     });
@@ -287,18 +302,14 @@ function backfillQuoteItemDiscountableIfMissing(database) {
   database.run(`UPDATE quote_items SET discountable = 0 WHERE itemName = 'Delivery Pack'`);
 }
 
-// The two "Delivery Pack" rows are meant to stay scoped one-per-model (see
-// seedDeliveryPackIfMissing). If one gets widened to "all models" — the API stores an
-// empty vehicleModels list as universal, and clearing every model checkbox in Beheer →
-// Opties produces exactly that — then it AND the model-specific row both match the same
-// model, and the fee lands on every quote for it twice, re-created on each save.
-// resolveMandatoryAccessories() in routes/quotes.js now collapses same-named mandatory
-// rows so the duplicate line can't appear, but this also repairs the underlying scoping
-// on boot. Deliberately narrow: only touches a row whose scope is currently the empty
-// (universal) list, never one an admin has pointed at a real set of models.
+// The single Delivery Pack row must stay scoped to the models that carry the fee. If its
+// scope is cleared — the API stores an empty vehicleModels list as "all models", and
+// clearing every checkbox in Beheer → Opties produces exactly that — it would be charged
+// on every model, including ones with no delivery fee. Repairs that on boot. Deliberately
+// narrow: only touches the row when BOTH scope lists are empty, so an admin who
+// deliberately scopes it to specific trims (vehicleTrims) is left alone.
 function restoreDeliveryPackScopingIfWidened(database) {
-  database.run(`UPDATE accessories SET vehicleModels = '["Geely E5"]' WHERE id = 'delivery-pack-e5' AND vehicleModels = '[]'`);
-  database.run(`UPDATE accessories SET vehicleModels = '["Starray EM-i"]' WHERE id = 'delivery-pack-emi' AND vehicleModels = '[]'`);
+  database.run(`UPDATE accessories SET vehicleModels = '["Geely E5","Starray EM-i"]' WHERE id = 'delivery-pack' AND vehicleModels = '[]' AND vehicleTrims = '[]'`);
 }
 
 // Last-line-of-defence self-heal for the recurring "Delivery Pack appears twice on the
