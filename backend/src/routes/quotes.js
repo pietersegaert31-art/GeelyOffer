@@ -124,13 +124,23 @@ function normalizeVatNumber(raw) {
 // called directly).
 const SINGLE_SELECT_CATEGORIES = ['exterior', 'interior'];
 
-// vehicleName scopes accessories to the quote's actual vehicle — without this, a request
-// (crafted by hand, or a frontend bug) could attach an accessory that only makes sense
-// for a different model. This is also what makes the delivery-pack duplication bug
-// impossible even if something upstream misbehaves again: two accessories can share a
-// name across models, but this check keys off the accessory's own `vehicleModels`, not
-// a name match, so a mismatched one is always rejected here regardless of how it arrived.
-async function resolveAccessories(items, vehicleName) {
+// An accessory is scoped to a vehicle (trim) in two independent ways: by whole-model name
+// (`vehicleModels`) and by exact trim id (`vehicleTrims`). It applies when it has neither
+// list set (universal), OR the vehicle's model name is in `vehicleModels`, OR the
+// vehicle's id is in `vehicleTrims`. Keying off the accessory's own lists rather than a
+// name match on the submitted line is what makes the delivery-pack duplication bug
+// impossible even if something upstream misbehaves. `accessory` here is a raw DB row
+// (vehicleModels / vehicleTrims are JSON strings); `vehicle` is `{ id, name }`.
+// Mirrors accessoryAppliesToVehicle() in frontend/src/utils/accessoryScope.js.
+function accessoryAppliesToVehicle(accessory, vehicle) {
+  if (!vehicle) return false;
+  const models = JSON.parse(accessory.vehicleModels || '[]');
+  const trims = JSON.parse(accessory.vehicleTrims || '[]');
+  if (models.length === 0 && trims.length === 0) return true;
+  return models.includes(vehicle.name) || trims.includes(vehicle.id);
+}
+
+async function resolveAccessories(items, vehicle) {
   if (!Array.isArray(items) || items.length === 0) return [];
   const resolved = [];
   for (const item of items) {
@@ -145,8 +155,9 @@ async function resolveAccessories(items, vehicleName) {
       error.status = 400;
       throw error;
     }
-    const applicableModels = JSON.parse(accessory.vehicleModels || '[]');
-    if (applicableModels.length > 0 && vehicleName && !applicableModels.includes(vehicleName)) {
+    // Only reject when the vehicle is known — a PUT that can't resolve the quote's vehicle
+    // (deleted trim) still needs to keep whatever was already on it.
+    if (vehicle && !accessoryAppliesToVehicle(accessory, vehicle)) {
       const error = new Error(`Optie "${accessory.name}" is niet beschikbaar voor dit voertuig`);
       error.status = 400;
       throw error;
@@ -170,17 +181,9 @@ async function resolveAccessories(items, vehicleName) {
 // builder never lets a user deselect one, but resolving them independently of whatever
 // the client sent means a quote is correctly priced even if the frontend has a bug, or
 // the request was crafted by hand to omit it.
-async function resolveMandatoryAccessories(vehicleName) {
+async function resolveMandatoryAccessories(vehicle) {
   const rows = await allAsync('SELECT * FROM accessories WHERE mandatory = 1 AND active = 1', []);
-  const applicable = rows
-    // An empty vehicleModels array means "applies to every model" everywhere else in this
-    // file (see resolveAccessories above) and in the admin UI ("Alle modellen" in
-    // AdminAccessories.jsx) — without the length check, a mandatory fee meant to apply
-    // universally would never actually be charged on any quote.
-    .filter((row) => {
-      const applicableModels = JSON.parse(row.vehicleModels || '[]');
-      return applicableModels.length === 0 || applicableModels.includes(vehicleName);
-    });
+  const applicable = rows.filter((row) => accessoryAppliesToVehicle(row, vehicle));
 
   // The delivery pack is configured as one mandatory row per model ('delivery-pack-e5',
   // 'delivery-pack-emi'), all sharing the name "Delivery Pack". If one of those rows ever
@@ -197,9 +200,8 @@ async function resolveMandatoryAccessories(vehicleName) {
       byName.set(row.name, row);
       continue;
     }
-    const rowIsSpecific = JSON.parse(row.vehicleModels || '[]').length > 0;
-    const currentIsSpecific = JSON.parse(current.vehicleModels || '[]').length > 0;
-    if (rowIsSpecific && !currentIsSpecific) byName.set(row.name, row);
+    const isSpecific = (r) => JSON.parse(r.vehicleModels || '[]').length > 0 || JSON.parse(r.vehicleTrims || '[]').length > 0;
+    if (isSpecific(row) && !isSpecific(current)) byName.set(row.name, row);
   }
 
   return [...byName.values()].map((row) => ({ id: row.id, name: row.name, price: row.price, quantity: 1, category: row.category, discountable: !!row.discountable }));
@@ -238,12 +240,11 @@ function mergeMandatoryAccessories(resolvedAccessories, mandatoryAccessories) {
 // pre-select it in the live preview.
 const STANDARD_PAINT_ACCESSORY_ID = 'paint-standard-white';
 
-async function applyDefaultPaintColor(resolvedAccessories, vehicleName) {
+async function applyDefaultPaintColor(resolvedAccessories, vehicle) {
   if (resolvedAccessories.some((a) => a.category === 'exterior')) return resolvedAccessories;
   const row = await getAsync('SELECT * FROM accessories WHERE id = ? AND active = 1', [STANDARD_PAINT_ACCESSORY_ID]);
   if (!row) return resolvedAccessories;
-  const applicableModels = JSON.parse(row.vehicleModels || '[]');
-  if (applicableModels.length > 0 && vehicleName && !applicableModels.includes(vehicleName)) {
+  if (vehicle && !accessoryAppliesToVehicle(row, vehicle)) {
     return resolvedAccessories;
   }
   return [
@@ -526,10 +527,10 @@ router.post('/', async (req, res) => {
     const id = uuidv4();
     const basePrice = vehicle.basePrice;
 
-    const mandatoryAccessories = await resolveMandatoryAccessories(vehicle.name);
+    const mandatoryAccessories = await resolveMandatoryAccessories(vehicle);
     const resolvedAccessories = await applyDefaultPaintColor(
-      mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle.name), mandatoryAccessories),
-      vehicle.name
+      mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle), mandatoryAccessories),
+      vehicle
     );
     const accessoriesTotal = resolvedAccessories.reduce((sum, acc) => sum + acc.price * acc.quantity, 0);
     const nonDiscountableAccessoriesTotal = resolvedAccessories
@@ -874,14 +875,14 @@ router.put('/:id', async (req, res) => {
     // Needed on every save (not just when accessories are resubmitted) since pricing —
     // and specifically which portion of it is exempt from the discount — is recalculated
     // unconditionally below, even for edits that only touch the discount or customer info.
-    const vehicle = await getAsync('SELECT name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
-    const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle.name) : [];
+    const vehicle = await getAsync('SELECT id, name FROM vehicles WHERE id = ?', [quote.selectedVehicleId]);
+    const mandatoryAccessories = vehicle ? await resolveMandatoryAccessories(vehicle) : [];
 
     let resolvedAccessories = null;
     if (accessories) {
       resolvedAccessories = await applyDefaultPaintColor(
-        mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle?.name), mandatoryAccessories),
-        vehicle?.name
+        mergeMandatoryAccessories(await resolveAccessories(accessories, vehicle), mandatoryAccessories),
+        vehicle
       );
     }
     const accessoriesTotal = resolvedAccessories

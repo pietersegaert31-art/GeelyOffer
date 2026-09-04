@@ -481,6 +481,14 @@ export function initializeDatabase() {
     // reduces its price) — see calculatePricing in utils/pricing.js. Defaults to true so
     // every pre-existing accessory (paint, upholstery) keeps behaving exactly as before.
     addColumnIfMissing(database, 'accessories', 'discountable', 'BOOLEAN DEFAULT 1');
+    // Optional per-trim scoping — a JSON array of vehicle ids (e.g.
+    // ["starray-emi-max-plus"]), distinct from vehicleModels which scopes by whole-model
+    // name. An accessory applies to a vehicle when it has neither list set (universal), OR
+    // its model name is in vehicleModels, OR its exact trim id is in vehicleTrims — see
+    // accessoryAppliesToVehicle() in routes/quotes.js. Lets, for example, an interior
+    // colour be offered on only some trims of a model. Existing rows default to '[]', so
+    // nothing about their availability changes.
+    addColumnIfMissing(database, 'accessories', 'vehicleTrims', "TEXT NOT NULL DEFAULT '[]'");
 
     // Quotes table
     database.run(`

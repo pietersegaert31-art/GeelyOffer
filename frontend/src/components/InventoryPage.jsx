@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api, formatDate } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 import { INVENTORY_STATUSES as STATUSES, INVENTORY_STATUS_LABELS as STATUS_LABELS } from '../utils/constants'
+import { accessoryAppliesToVehicle } from '../utils/accessoryScope'
 
 // Only these five badge tones exist in index.css (mirrors STATUS_LABELS' quote badges).
 const STATUS_BADGE_CLASS = {
@@ -47,16 +48,16 @@ function UnitFormModal({ unit, vehicles, branches, accessories, onClose, onSaved
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
 
   const selectedVehicle = vehicles.find((v) => v.id === form.vehicleId)
-  // Same applicability rule as AccessoriesSelector.jsx: an option applies if it's universal
-  // (no vehicleModels) or explicitly lists this vehicle by name. Filtered by category
-  // rather than requiring a swatch hex — the hex is only cosmetic (it's optional when
-  // adding an option in Beheer → Opties), so an option someone forgot to give a swatch
-  // must still be pickable here, not silently missing from the dropdown.
+  // Same applicability rule as AccessoriesSelector.jsx (accessoryAppliesToVehicle): an
+  // option applies if it's universal, or its model name / trim id matches this vehicle.
+  // Filtered by category rather than requiring a swatch hex — the hex is only cosmetic
+  // (it's optional when adding an option in Beheer → Opties), so an option someone forgot
+  // to give a swatch must still be pickable here, not silently missing from the dropdown.
   const availableColors = accessories.filter((a) =>
-    a.category === 'exterior' && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
+    a.category === 'exterior' && accessoryAppliesToVehicle(a, selectedVehicle)
   )
   const availableInteriors = accessories.filter((a) =>
-    a.category === 'interior' && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedVehicle?.name))
+    a.category === 'interior' && accessoryAppliesToVehicle(a, selectedVehicle)
   )
 
   const handleSubmit = async (e) => {

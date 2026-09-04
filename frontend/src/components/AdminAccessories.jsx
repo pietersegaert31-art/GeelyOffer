@@ -2,23 +2,54 @@ import React, { useEffect, useState } from 'react'
 import { api, formatPrice } from '../utils/api'
 import { useAuth } from '../context/AuthContext'
 
-function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
+// Vehicles grouped by model name, each with its list of trims — drives the "Beschikbaar
+// voor" picker (whole model, or specific trims within it).
+function groupByModel(vehicles) {
+  const groups = []
+  for (const v of vehicles) {
+    let group = groups.find((g) => g.name === v.name)
+    if (!group) { group = { name: v.name, trims: [] }; groups.push(group) }
+    group.trims.push(v)
+  }
+  return groups
+}
+
+function AccessoryFormModal({ accessory, vehicles, onClose, onSaved }) {
   const [form, setForm] = useState(accessory ? {
     name: accessory.name, price: accessory.price, category: accessory.category,
-    vehicleModels: accessory.vehicleModels, active: accessory.active, mandatory: accessory.mandatory,
+    vehicleModels: accessory.vehicleModels || [], vehicleTrims: accessory.vehicleTrims || [],
+    active: accessory.active, mandatory: accessory.mandatory,
     discountable: accessory.discountable, colorHex: accessory.colorHex || '',
-  } : { name: '', price: '', category: '', vehicleModels: [], active: true, mandatory: false, discountable: true, colorHex: '' })
+  } : { name: '', price: '', category: '', vehicleModels: [], vehicleTrims: [], active: true, mandatory: false, discountable: true, colorHex: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const set = (field, value) => setForm((prev) => ({ ...prev, [field]: value }))
+  const modelGroups = groupByModel(vehicles)
 
-  const toggleModel = (name) => {
+  // Whole model on/off. Turning it on also clears any of that model's individual trim
+  // selections, since the model already covers them.
+  const toggleModel = (group) => {
+    setForm((prev) => {
+      const has = prev.vehicleModels.includes(group.name)
+      return {
+        ...prev,
+        vehicleModels: has
+          ? prev.vehicleModels.filter((m) => m !== group.name)
+          : [...prev.vehicleModels, group.name],
+        vehicleTrims: has
+          ? prev.vehicleTrims
+          : prev.vehicleTrims.filter((id) => !group.trims.some((t) => t.id === id)),
+      }
+    })
+  }
+
+  const toggleTrim = (trimId) => {
     setForm((prev) => ({
       ...prev,
-      vehicleModels: prev.vehicleModels.includes(name)
-        ? prev.vehicleModels.filter((m) => m !== name)
-        : [...prev.vehicleModels, name],
+      vehicleTrims: prev.vehicleTrims.includes(trimId)
+        ? prev.vehicleTrims.filter((id) => id !== trimId)
+        : [...prev.vehicleTrims, trimId],
     }))
   }
 
@@ -32,6 +63,7 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
         price: parseFloat(form.price),
         category: form.category.toLowerCase(),
         vehicleModels: form.vehicleModels,
+        vehicleTrims: form.vehicleTrims,
         active: form.active,
         mandatory: form.mandatory,
         discountable: form.discountable,
@@ -99,13 +131,35 @@ function AccessoryFormModal({ accessory, vehicleNames, onClose, onSaved }) {
           </div>
           <div className="form-group">
             <label>Beschikbaar voor</label>
-            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-              {vehicleNames.map((name) => (
-                <label key={name} style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'none', fontWeight: 600, fontSize: '0.85rem' }}>
-                  <input type="checkbox" checked={form.vehicleModels.includes(name)} onChange={() => toggleModel(name)} style={{ width: '16px', height: '16px' }} />
-                  {name}
-                </label>
-              ))}
+            <p style={{ margin: '0 0 8px', fontSize: '0.8rem', color: 'var(--muted)', textTransform: 'none', fontWeight: 400 }}>
+              Niets aangevinkt = alle modellen. Vink een heel model aan, of enkel bepaalde uitvoeringen.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {modelGroups.map((group) => {
+                const wholeModel = form.vehicleModels.includes(group.name)
+                return (
+                  <div key={group.name} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '10px 12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'none', fontWeight: 700, fontSize: '0.88rem' }}>
+                      <input type="checkbox" checked={wholeModel} onChange={() => toggleModel(group)} style={{ width: '16px', height: '16px' }} />
+                      Hele {group.name}
+                    </label>
+                    <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: group.trims.length ? '8px' : 0, paddingLeft: '24px' }}>
+                      {group.trims.map((trim) => (
+                        <label key={trim.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'none', fontWeight: 600, fontSize: '0.82rem', opacity: wholeModel ? 0.45 : 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={wholeModel || form.vehicleTrims.includes(trim.id)}
+                            disabled={wholeModel}
+                            onChange={() => toggleTrim(trim.id)}
+                            style={{ width: '15px', height: '15px' }}
+                          />
+                          {trim.model}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
           <div className="form-group">
@@ -145,7 +199,7 @@ function AdminAccessories() {
   // "Opslaan" (a raw 403 inside the form), instead of never seeing controls they can't use.
   const canManage = user.role === 'admin' || user.role === 'sales_manager'
   const [accessories, setAccessories] = useState([])
-  const [vehicleNames, setVehicleNames] = useState([])
+  const [vehicles, setVehicles] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(null)
@@ -156,12 +210,22 @@ function AdminAccessories() {
       setError('')
       const [accData, vehicleData] = await Promise.all([api.getAccessories(true), api.getVehicles(true)])
       setAccessories(accData)
-      setVehicleNames([...new Set(vehicleData.map((v) => v.name))])
+      setVehicles(vehicleData)
     } catch (err) {
       setError('Kon opties niet laden: ' + err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  // "Starray EM-i MAX+" for a trim id — used in the read-only "Beschikbaar voor" column.
+  const trimLabel = (id) => {
+    const v = vehicles.find((x) => x.id === id)
+    return v ? `${v.name} ${v.model}` : id
+  }
+  const availabilitySummary = (acc) => {
+    const parts = [...(acc.vehicleModels || []), ...(acc.vehicleTrims || []).map(trimLabel)]
+    return parts.join(', ') || 'Alle modellen'
   }
 
   useEffect(() => { load() }, [])
@@ -220,7 +284,7 @@ function AdminAccessories() {
                   </td>
                   <td style={{ textTransform: 'capitalize' }}>{acc.category}</td>
                   <td>{formatPrice(acc.price)}</td>
-                  <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{acc.vehicleModels.join(', ') || 'Alle modellen'}</td>
+                  <td style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>{availabilitySummary(acc)}</td>
                   <td>
                     <span className={`badge ${acc.active ? 'sent' : 'draft'}`}>{acc.active ? 'Actief' : 'Inactief'}</span>
                     {acc.mandatory && <span className="badge declined" style={{ marginLeft: '6px' }}>Verplicht</span>}
@@ -244,7 +308,7 @@ function AdminAccessories() {
       {canManage && editing && (
         <AccessoryFormModal
           accessory={editing === 'new' ? null : editing}
-          vehicleNames={vehicleNames}
+          vehicles={vehicles}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load() }}
         />

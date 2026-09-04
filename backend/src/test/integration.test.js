@@ -215,6 +215,61 @@ describe('server integration', () => {
     await fetch(`${BASE_URL}/api/accessories/${rogueAccessory.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
   });
 
+  test('an option scoped to specific trims is only accepted on those trims', async () => {
+    const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD }),
+    });
+    const cookie = extractCookie(loginRes);
+
+    const vehicles = await (await fetch(`${BASE_URL}/api/vehicles`, { headers: { Cookie: cookie } })).json();
+    const maxPlus = vehicles.find((v) => v.name === 'Starray EM-i' && v.model === 'MAX+');
+    const pro = vehicles.find((v) => v.name === 'Starray EM-i' && v.model === 'PRO');
+    assert.ok(maxPlus && pro, 'Starray EM-i MAX+ and PRO trims should exist');
+
+    // An interior colour offered only on the MAX+ trim.
+    const accRes = await fetch(`${BASE_URL}/api/accessories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ name: 'Bekleding: Nappa Zwart', price: 1200, category: 'interior', vehicleModels: [], vehicleTrims: [maxPlus.id] }),
+    });
+    assert.equal(accRes.status, 201);
+    const trimOption = await accRes.json();
+    assert.deepEqual(trimOption.vehicleTrims, [maxPlus.id], 'the API should echo back vehicleTrims');
+
+    // Rejected on the PRO trim...
+    const badQuote = await fetch(`${BASE_URL}/api/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        customerName: 'Trim Scope Test', customerEmail: 'x@y.be', customerPhone: '0470', customerStreet: 'S1', customerPostalCode: '8800', customerCity: 'R',
+        selectedVehicleId: pro.id,
+        configuration: { vehicleName: pro.name, vehicleModel: pro.model },
+        accessories: [{ id: trimOption.id }],
+      }),
+    });
+    assert.equal(badQuote.status, 400, 'a trim-scoped option must be rejected on a trim it is not scoped to');
+
+    // ...accepted on the MAX+ trim, and priced in.
+    const goodQuote = await fetch(`${BASE_URL}/api/quotes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        customerName: 'Trim Scope Test', customerEmail: 'x@y.be', customerPhone: '0470', customerStreet: 'S1', customerPostalCode: '8800', customerCity: 'R',
+        selectedVehicleId: maxPlus.id,
+        configuration: { vehicleName: maxPlus.name, vehicleModel: maxPlus.model },
+        accessories: [{ id: trimOption.id }],
+      }),
+    });
+    assert.equal(goodQuote.status, 201);
+    const created = await goodQuote.json();
+    assert.ok(created.items.some((i) => i.name === 'Bekleding: Nappa Zwart'), 'the trim-scoped option should be on the MAX+ quote');
+
+    await fetch(`${BASE_URL}/api/quotes/${created.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
+    await fetch(`${BASE_URL}/api/accessories/${trimOption.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
+  });
+
   test('a showroom offer carries no customer or offer number and is blocked from customer flows', async () => {
     const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',

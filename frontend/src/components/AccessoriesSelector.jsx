@@ -1,26 +1,22 @@
 import React from 'react'
 import { formatPrice } from '../utils/api'
 import { SINGLE_SELECT_CATEGORIES } from '../utils/constants'
+import { accessoryAppliesToVehicle } from '../utils/accessoryScope'
 
-function AccessoriesSelector({ accessories, selectedAccessories, onSelectAccessory, vehicleModel }) {
-  // The API always returns vehicleModels as an array (never null/undefined — see
-  // toPublicAccessory in routes/accessories.js), so `!acc.vehicleModels` never actually
-  // catches the "applies to every model" case (an empty array, shown as "Alle modellen" in
-  // AdminAccessories.jsx) — it has to be checked by length, the same way InventoryPage.jsx
-  // already does it correctly. Without this, a universal accessory was never selectable
-  // here for any vehicle.
-  const applicableAccessories = accessories.filter(
-    acc => !acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleModel)
-  )
+function AccessoriesSelector({ accessories, selectedAccessories, onSelectAccessory, vehicle }) {
+  // Show only the options scoped to this exact trim — by whole-model name or by trim id
+  // (see accessoryAppliesToVehicle / AdminAccessories.jsx's "Beschikbaar voor").
+  const applicableAccessories = accessories.filter(acc => accessoryAppliesToVehicle(acc, vehicle))
   // Collapse accessories that share a name and both apply here (e.g. a mandatory "Delivery
   // Pack" that has drifted to also being "all models" alongside the model-specific one),
-  // preferring the model-specific row — otherwise it renders as two identical locked rows
-  // and gets counted twice. Mirrors resolveMandatoryAccessories in routes/quotes.js.
+  // preferring the more specifically scoped row — otherwise it renders as two identical
+  // locked rows and gets counted twice. Mirrors resolveMandatoryAccessories in routes/quotes.js.
+  const scopeCount = a => (a.vehicleModels?.length || 0) + (a.vehicleTrims?.length || 0)
   const availableAccessories = []
   for (const acc of applicableAccessories) {
     const i = availableAccessories.findIndex(a => a.name === acc.name && a.category === acc.category)
     if (i === -1) availableAccessories.push(acc)
-    else if (acc.vehicleModels?.length && !availableAccessories[i].vehicleModels?.length) availableAccessories[i] = acc
+    else if (scopeCount(acc) && !scopeCount(availableAccessories[i])) availableAccessories[i] = acc
   }
   const categories = [...new Set(availableAccessories.map(a => a.category))]
 

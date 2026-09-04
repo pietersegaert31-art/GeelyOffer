@@ -6,6 +6,7 @@ import {
   DISCOUNT_APPROVAL_STATUS_LABELS, DISCOUNT_APPROVAL_BADGE_CLASS,
   SINGLE_SELECT_CATEGORIES, STANDARD_PAINT_ACCESSORY_ID,
 } from '../utils/constants'
+import { accessoryAppliesToVehicle } from '../utils/accessoryScope'
 import { useAuth } from '../context/AuthContext'
 import CustomerForm from './CustomerForm'
 import TradeInForm from './TradeInForm'
@@ -80,30 +81,25 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
 
         setVehicle(vehicleData)
         setAccessoriesCatalog(catalog)
-        // Matching by name alone isn't safe: two accessories for different vehicles can
-        // share a name (e.g. "Delivery Pack" exists once per model), so without the
-        // vehicle-applicability check below, opening any quote would also silently pick
-        // up the OTHER model's same-named accessory — invisible in the UI (which only
-        // ever displays options for this vehicle) but included in what gets saved.
-        // vehicleModels is always an array (never null) from the API — `!acc.vehicleModels`
-        // alone would never actually match the "applies to every model" case (an empty
-        // array), silently dropping a universal accessory (and its price) from the quote
-        // the next time it's opened and saved. Checked by length instead, same as
-        // AccessoriesSelector.jsx and InventoryPage.jsx.
-        // If the catalog somehow holds two accessories with the same name that both apply
-        // to this vehicle (e.g. a "Delivery Pack" that has drifted to also being "all
-        // models" alongside the model-specific one), keep only one per name — preferring
-        // the model-specific row — so the quote doesn't load, show and re-save that line
-        // twice. Mirrors resolveMandatoryAccessories in routes/quotes.js.
+        // Rebuild the selected-options list from the quote's saved line items by matching
+        // names against the catalog — but only against options actually scoped to this
+        // exact trim (accessoryAppliesToVehicle), so opening a quote never silently picks
+        // up a same-named option meant for a different model or trim.
+        // If the catalog somehow holds two options with the same name that both apply to
+        // this vehicle (e.g. a "Delivery Pack" that has drifted to also being "all models"
+        // alongside the model-specific one), keep only one per name — preferring the more
+        // specific row — so the quote doesn't load, show and re-save that line twice.
+        // Mirrors resolveMandatoryAccessories in routes/quotes.js.
         const matched = catalog.filter((acc) =>
-          (!acc.vehicleModels?.length || acc.vehicleModels.includes(vehicleData.name)) &&
+          accessoryAppliesToVehicle(acc, vehicleData) &&
           quote.items?.some((item) => item.itemName === acc.name)
         )
+        const scopeCount = (a) => (a.vehicleModels?.length || 0) + (a.vehicleTrims?.length || 0)
         const dedupedByName = []
         for (const acc of matched) {
           const i = dedupedByName.findIndex((a) => a.name === acc.name)
           if (i === -1) dedupedByName.push(acc)
-          else if (acc.vehicleModels?.length && !dedupedByName[i].vehicleModels?.length) dedupedByName[i] = acc
+          else if (scopeCount(acc) && !scopeCount(dedupedByName[i])) dedupedByName[i] = acc
         }
         setSelectedAccessories(dedupedByName)
         const loadedDiscountType = quote.discountType || 'percentage'
@@ -165,18 +161,16 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   // injects it independently on save regardless of what's sent here.
   useEffect(() => {
     if (!vehicle || accessoriesCatalog.length === 0) return
-    // Same "empty vehicleModels = every model" gap as AccessoriesSelector.jsx above —
-    // without the length check, a universal mandatory fee would never show in this
-    // preview for any model.
-    const applicable = accessoriesCatalog.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name)))
-    // Collapse same-named mandatory fees to one (preferring the model-specific row) —
-    // mirrors resolveMandatoryAccessories in routes/quotes.js, so a "Delivery Pack" that
-    // has drifted to also being "all models" doesn't show on the quote twice.
+    const applicable = accessoriesCatalog.filter((a) => a.mandatory && accessoryAppliesToVehicle(a, vehicle))
+    // Collapse same-named mandatory fees to one (preferring the more specifically scoped
+    // row) — mirrors resolveMandatoryAccessories in routes/quotes.js, so a "Delivery Pack"
+    // that has drifted to also being "all models" doesn't show on the quote twice.
+    const scopeCount = (a) => (a.vehicleModels?.length || 0) + (a.vehicleTrims?.length || 0)
     const mandatory = []
     for (const a of applicable) {
       const dupeIndex = mandatory.findIndex((m) => m.name === a.name)
       if (dupeIndex === -1) mandatory.push(a)
-      else if (a.vehicleModels?.length && !mandatory[dupeIndex].vehicleModels?.length) mandatory[dupeIndex] = a
+      else if (scopeCount(a) && !scopeCount(mandatory[dupeIndex])) mandatory[dupeIndex] = a
     }
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
@@ -193,8 +187,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
   useEffect(() => {
     if (!vehicle || accessoriesCatalog.length === 0) return
     const standardColor = accessoriesCatalog.find(
-      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID &&
-        (!a.vehicleModels?.length || a.vehicleModels.includes(vehicle.name))
+      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID && accessoryAppliesToVehicle(a, vehicle)
     )
     if (!standardColor) return
     setSelectedAccessories((prev) =>
@@ -278,7 +271,7 @@ function QuoteEditor({ quoteId, onClose, onSaved }) {
                 <AccessoriesSelector
                   accessories={accessoriesCatalog}
                   selectedAccessories={selectedAccessories}
-                  vehicleModel={vehicle.name}
+                  vehicle={vehicle}
                   onSelectAccessory={(acc) => {
                     if (acc.mandatory) return
                     setSelectedAccessories((prev) => {

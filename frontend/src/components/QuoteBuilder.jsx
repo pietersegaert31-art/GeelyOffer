@@ -5,6 +5,7 @@ import {
   DISCOUNT_APPROVAL_THRESHOLD_PERCENTAGE, DISCOUNT_APPROVAL_THRESHOLD_FIXED,
   SINGLE_SELECT_CATEGORIES, STANDARD_PAINT_ACCESSORY_ID,
 } from '../utils/constants'
+import { accessoryAppliesToVehicle } from '../utils/accessoryScope'
 import { useAuth } from '../context/AuthContext'
 import VehicleSelector from './VehicleSelector'
 import VariantSelector from './VariantSelector'
@@ -192,29 +193,29 @@ function QuoteBuilder({ onQuoteCreated }) {
   // an accurate live preview, not the source of truth for what actually gets billed.
   useEffect(() => {
     if (!selectedModel || accessories.length === 0) return
-    // An empty vehicleModels array means "applies to every model" (see resolveAccessories
-    // in routes/quotes.js and AdminAccessories.jsx's "Alle modellen") — without the length
-    // check, `[].includes(selectedModel)` is always false, so a universal mandatory fee
-    // would never show up in this live preview for any model (the backend now applies it
-    // correctly regardless — see resolveMandatoryAccessories — this was purely a preview
-    // gap, but one that made the quote look cheaper than what actually gets billed).
-    const applicable = accessories.filter((a) => a.mandatory && (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel)))
+    // Once a trim is picked we scope by it exactly; before that (step 1/2) we still match
+    // whole-model mandatory fees against the model name. The backend applies mandatory
+    // fees on save regardless (resolveMandatoryAccessories); this is purely so the live
+    // preview total matches what actually gets billed.
+    const previewVehicle = selectedVariant || { id: null, name: selectedModel }
+    const applicable = accessories.filter((a) => a.mandatory && accessoryAppliesToVehicle(a, previewVehicle))
     // Collapse same-named mandatory fees (e.g. a "Delivery Pack" that ends up both
-    // model-specific and "all models") to one, preferring the model-specific row — mirrors
-    // resolveMandatoryAccessories in routes/quotes.js so the preview total matches the
-    // bill instead of showing the fee twice.
+    // model-specific and "all models") to one, preferring the more specifically scoped row
+    // — mirrors resolveMandatoryAccessories in routes/quotes.js so the preview total
+    // matches the bill instead of showing the fee twice.
+    const scopeCount = (a) => (a.vehicleModels?.length || 0) + (a.vehicleTrims?.length || 0)
     const mandatory = []
     for (const a of applicable) {
       const dupeIndex = mandatory.findIndex((m) => m.name === a.name)
       if (dupeIndex === -1) mandatory.push(a)
-      else if (a.vehicleModels?.length && !mandatory[dupeIndex].vehicleModels?.length) mandatory[dupeIndex] = a
+      else if (scopeCount(a) && !scopeCount(mandatory[dupeIndex])) mandatory[dupeIndex] = a
     }
     if (mandatory.length === 0) return
     setSelectedAccessories((prev) => {
       const missing = mandatory.filter((m) => !prev.some((p) => p.id === m.id || p.name === m.name))
       return missing.length ? [...prev, ...missing] : prev
     })
-  }, [selectedModel, accessories])
+  }, [selectedModel, selectedVariant, accessories])
 
   // Every quote carries an exterior-colour line: the free "Standaardkleur: Wit" (€0)
   // stands in whenever the customer doesn't upgrade to a paid metallic. Re-added here
@@ -223,17 +224,28 @@ function QuoteBuilder({ onQuoteCreated }) {
   // in the selector's onSelect handler below. The backend applies the same fallback on
   // save (applyDefaultPaintColor in routes/quotes.js); this just keeps the live preview
   // and the stock-match honest.
+  // Switching trims can invalidate an option that was only offered on the previous one
+  // (e.g. an interior colour available on MAX+ but not PRO) — drop those so the quote and
+  // the save request stay consistent with the chosen trim.
+  useEffect(() => {
+    if (!selectedVariant) return
+    setSelectedAccessories((prev) => {
+      const kept = prev.filter((a) => accessoryAppliesToVehicle(a, selectedVariant))
+      return kept.length === prev.length ? prev : kept
+    })
+  }, [selectedVariant])
+
   useEffect(() => {
     if (!selectedModel || accessories.length === 0) return
+    const previewVehicle = selectedVariant || { id: null, name: selectedModel }
     const standardColor = accessories.find(
-      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID &&
-        (!a.vehicleModels?.length || a.vehicleModels.includes(selectedModel))
+      (a) => a.id === STANDARD_PAINT_ACCESSORY_ID && accessoryAppliesToVehicle(a, previewVehicle)
     )
     if (!standardColor) return
     setSelectedAccessories((prev) =>
       prev.some((a) => a.category === 'exterior') ? prev : [...prev, standardColor]
     )
-  }, [selectedModel, accessories, selectedAccessories])
+  }, [selectedModel, selectedVariant, accessories, selectedAccessories])
 
   // Guards against a slower, stale calculatePricing() response overwriting a newer one —
   // e.g. rapid discount edits can fire two overlapping requests, and without this the one
@@ -516,7 +528,7 @@ function QuoteBuilder({ onQuoteCreated }) {
                 <AccessoriesSelector
                   accessories={accessories}
                   selectedAccessories={selectedAccessories}
-                  vehicleModel={selectedModel}
+                  vehicle={selectedVariant}
                   onSelectAccessory={(acc) => {
                     if (acc.mandatory) return
                     const alreadySelected = selectedAccessories.find(a => a.id === acc.id)

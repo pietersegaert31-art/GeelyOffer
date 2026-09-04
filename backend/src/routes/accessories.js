@@ -14,11 +14,27 @@ function toPublicAccessory(row) {
     price: row.price,
     category: row.category,
     vehicleModels: JSON.parse(row.vehicleModels || '[]'),
+    // Per-trim scoping (vehicle ids). Empty means "no trim restriction" — see
+    // accessoryAppliesToVehicle in routes/quotes.js.
+    vehicleTrims: JSON.parse(row.vehicleTrims || '[]'),
     active: !!row.active,
     mandatory: !!row.mandatory,
     discountable: !!row.discountable,
     colorHex: row.colorHex || null,
   };
+}
+
+// vehicleModels / vehicleTrims must each be an array of strings when present — a
+// hand-crafted request sending a bare string or object would otherwise be JSON.stringified
+// into a shape that silently never matches any vehicle.
+function normalizeScopeList(value, label) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+    const error = new Error(`${label} moet een lijst van tekstwaarden zijn`);
+    error.status = 400;
+    throw error;
+  }
+  return JSON.stringify(value);
 }
 
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
@@ -54,15 +70,17 @@ router.get('/', async (req, res) => {
 // Create a new accessory (admin or sales manager)
 router.post('/', requireManager, async (req, res) => {
   try {
-    const { name, price, category, vehicleModels = [], mandatory = false, discountable = true, colorHex } = req.body;
+    const { name, price, category, vehicleModels = [], vehicleTrims = [], mandatory = false, discountable = true, colorHex } = req.body;
     if (!name || !category || !Number.isFinite(price) || price < 0) {
       return res.status(400).json({ error: 'name, category en een geldige price zijn verplicht' });
     }
+    const modelsJson = normalizeScopeList(vehicleModels, 'vehicleModels');
+    const trimsJson = normalizeScopeList(vehicleTrims, 'vehicleTrims');
 
     const id = uuidv4();
     await runAsync(
-      'INSERT INTO accessories (id, name, price, category, vehicleModels, active, mandatory, discountable, colorHex) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)',
-      [id, name, price, category, JSON.stringify(vehicleModels), mandatory ? 1 : 0, discountable ? 1 : 0, normalizeColorHex(colorHex) ?? null]
+      'INSERT INTO accessories (id, name, price, category, vehicleModels, vehicleTrims, active, mandatory, discountable, colorHex) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)',
+      [id, name, price, category, modelsJson, trimsJson, mandatory ? 1 : 0, discountable ? 1 : 0, normalizeColorHex(colorHex) ?? null]
     );
 
     const row = await getAsync('SELECT * FROM accessories WHERE id = ?', [id]);
@@ -87,19 +105,22 @@ router.put('/:id', requireManager, async (req, res) => {
       return res.status(404).json({ error: 'Optie niet gevonden' });
     }
 
-    const { name, price, category, vehicleModels, active, mandatory, discountable, colorHex } = req.body;
+    const { name, price, category, vehicleModels, vehicleTrims, active, mandatory, discountable, colorHex } = req.body;
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) {
       return res.status(400).json({ error: 'price moet een niet-negatief getal zijn' });
     }
     const normalizedColorHex = normalizeColorHex(colorHex);
+    const modelsJson = normalizeScopeList(vehicleModels, 'vehicleModels');
+    const trimsJson = normalizeScopeList(vehicleTrims, 'vehicleTrims');
 
     await runAsync(
-      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, active = ?, mandatory = ?, discountable = ?, colorHex = ? WHERE id = ?',
+      'UPDATE accessories SET name = ?, price = ?, category = ?, vehicleModels = ?, vehicleTrims = ?, active = ?, mandatory = ?, discountable = ?, colorHex = ? WHERE id = ?',
       [
         name ?? existing.name,
         price ?? existing.price,
         category ?? existing.category,
-        vehicleModels ? JSON.stringify(vehicleModels) : existing.vehicleModels,
+        modelsJson === undefined ? existing.vehicleModels : modelsJson,
+        trimsJson === undefined ? existing.vehicleTrims : trimsJson,
         active === undefined ? existing.active : (active ? 1 : 0),
         mandatory === undefined ? existing.mandatory : (mandatory ? 1 : 0),
         discountable === undefined ? existing.discountable : (discountable ? 1 : 0),
